@@ -1,0 +1,96 @@
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+
+export default defineSchema({
+  users: defineTable({
+    clerkId: v.string(), // Clerk user ID
+    email: v.string(),
+    role: v.union(v.literal("user"), v.literal("admin")), // User role
+    name: v.optional(v.string()),
+    telephone: v.optional(v.string()), // Phone number
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_clerk_id", ["clerkId"])
+    .index("by_email", ["email"]),
+
+  orders: defineTable({
+    userId: v.id("users"), // Reference to user
+    clerkId: v.string(), // Clerk user ID for quick lookup
+    orderNumber: v.string(), // Unique order number
+    files: v.array(
+      v.object({
+        fileName: v.string(),
+        fileUrl: v.string(), // URL to stored file
+        storageId: v.optional(v.id("_storage")), // Convex storage ID for original file (optional for backward compatibility)
+        fileSize: v.number(), // Size in bytes
+        pageCount: v.number(), // Number of pages in document
+        fileType: v.string(), // MIME type
+      })
+    ),
+    translatedFiles: v.optional(
+      v.array(
+        v.object({
+          fileName: v.string(),
+          fileUrl: v.string(), // URL to translated file
+          storageId: v.optional(v.id("_storage")), // Convex storage ID for translated file (optional for backward compatibility)
+          fileSize: v.number(),
+          fileType: v.string(),
+          originalFileName: v.string(), // Reference to original file
+        })
+      )
+    ),
+    totalPages: v.number(), // Total pages across all files
+    amount: v.number(), // Total amount in USD
+    sourceLanguage: v.string(), // Source language code
+    targetLanguage: v.string(), // Target language code
+    status: v.union(
+      v.literal("pending"),
+      v.literal("paid"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("cancelled")
+    ),
+    paymentId: v.optional(v.string()), // PayPal transaction ID
+    paymentStatus: v.optional(v.string()), // PayPal payment status
+    estimatedDeliveryDate: v.optional(v.number()), // Timestamp
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_clerk_id", ["clerkId"])
+    .index("by_order_number", ["orderNumber"])
+    .index("by_status", ["status"]),
+
+  // Translation segments for review and editing
+  translations: defineTable({
+    orderId: v.id("orders"), // Reference to order
+    fileName: v.string(), // Original file name
+    fileIndex: v.number(), // Index of file in order.files array
+    segments: v.array(
+      v.object({
+        id: v.string(), // Unique segment ID
+        originalText: v.string(), // Original text
+        translatedText: v.string(), // Translated text (editable)
+        isEdited: v.boolean(), // Whether admin has edited this segment
+        editedAt: v.optional(v.number()), // Timestamp of last edit
+        pageNumber: v.optional(v.number()), // Page number for PDFs
+        order: v.number(), // Display order
+      })
+    ),
+    status: v.union(
+      v.literal("pending"), // Not started
+      v.literal("translating"), // Translation in progress
+      v.literal("review"), // Ready for review
+      v.literal("approved"), // Admin approved
+      v.literal("completed") // Finalized and exported
+    ),
+    progress: v.number(), // 0-100 percentage
+    sourceLanguage: v.string(),
+    targetLanguage: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_order_id", ["orderId"])
+    .index("by_status", ["status"]),
+});
