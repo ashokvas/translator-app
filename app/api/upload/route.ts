@@ -177,6 +177,36 @@ async function checkLastPageIsBlank(pdfBuffer: Buffer): Promise<boolean> {
 }
 
 async function countOfficePages(file: File, buffer: Buffer): Promise<number> {
+  const libreOfficeServiceUrl = process.env.LIBREOFFICE_SERVICE_URL;
+
+  // Option 1: Use remote LibreOffice service (for production on Vercel)
+  if (libreOfficeServiceUrl) {
+    try {
+      console.log(`[countOfficePages] Using remote service: ${libreOfficeServiceUrl}`);
+      
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`${libreOfficeServiceUrl}/count-pages`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`LibreOffice service error: ${response.statusText} - ${errorText}`);
+      }
+      
+      const data = await response.json() as { pageCount: number };
+      console.log(`[countOfficePages] Remote service returned: ${data.pageCount} pages`);
+      return data.pageCount;
+    } catch (error) {
+      console.error('[countOfficePages] Remote service failed:', error);
+      throw new Error(`Failed to process office document: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // Option 2: Use local LibreOffice (for development)
   const tmpRoot = path.join(os.tmpdir(), 'translator-app');
   const runId = crypto.randomBytes(8).toString('hex');
   const runDir = path.join(tmpRoot, runId);
