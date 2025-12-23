@@ -81,15 +81,24 @@ set -e
 
 # Decode Google Cloud credentials if provided
 if [ -n "$GOOGLE_APPLICATION_CREDENTIALS_BASE64" ]; then
-    # Remove all whitespace and newlines from base64 string
-    CLEAN_BASE64=$(echo "$GOOGLE_APPLICATION_CREDENTIALS_BASE64" | tr -d '[:space:]')
+    # Remove all whitespace, newlines, and the % character (common shell prompt artifact)
+    CLEAN_BASE64=$(echo -n "$GOOGLE_APPLICATION_CREDENTIALS_BASE64" | tr -d '[:space:]%')
     
-    # Decode base64 and write to file
-    if echo "$CLEAN_BASE64" | base64 -d > /app/secrets/google-credentials.json 2>/dev/null; then
-        export GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/google-credentials.json
-        echo "✓ Google Cloud credentials configured"
+    # Check if base64 string is not empty after cleaning
+    if [ -z "$CLEAN_BASE64" ]; then
+        echo "⚠ Warning: GOOGLE_APPLICATION_CREDENTIALS_BASE64 is empty after cleaning"
     else
-        echo "⚠ Warning: Failed to decode GOOGLE_APPLICATION_CREDENTIALS_BASE64 (app may use API key instead)"
+        # Try to decode base64 and write to file, capture error output
+        DECODE_ERROR=$(echo -n "$CLEAN_BASE64" | base64 -d > /app/secrets/google-credentials.json 2>&1)
+        if [ $? -eq 0 ] && [ -s /app/secrets/google-credentials.json ]; then
+            export GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/google-credentials.json
+            echo "✓ Google Cloud credentials configured successfully"
+        else
+            echo "⚠ Warning: Failed to decode GOOGLE_APPLICATION_CREDENTIALS_BASE64"
+            echo "  Error: $DECODE_ERROR"
+            echo "  Base64 length: ${#CLEAN_BASE64} characters"
+            echo "  First 50 chars: ${CLEAN_BASE64:0:50}..."
+        fi
     fi
 else
     echo "⚠ Warning: GOOGLE_APPLICATION_CREDENTIALS_BASE64 not set (app may use API key instead)"
