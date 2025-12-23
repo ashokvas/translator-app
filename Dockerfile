@@ -60,7 +60,7 @@ RUN groupadd --system --gid 1001 nodejs \
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV LIBREOFFICE_PATH=/usr/bin/soffice
-ENV PORT=3000
+# PORT will be set by Coolify dynamically (defaults to 3000 in startup script)
 ENV HOSTNAME="0.0.0.0"
 
 # Copy built application
@@ -74,14 +74,34 @@ COPY --from=builder /app/convex ./convex
 # Create directory for Google Cloud credentials
 RUN mkdir -p /app/secrets && chown nextjs:nodejs /app/secrets
 
-# Script to decode Google Cloud credentials at runtime
+# Script to decode Google Cloud credentials at runtime and start server
 COPY --chown=nextjs:nodejs <<'EOF' /app/setup-credentials.sh
 #!/bin/bash
+set -e
+
+# Decode Google Cloud credentials if provided
 if [ -n "$GOOGLE_APPLICATION_CREDENTIALS_BASE64" ]; then
-    echo "$GOOGLE_APPLICATION_CREDENTIALS_BASE64" | base64 -d > /app/secrets/google-credentials.json
-    export GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/google-credentials.json
-    echo "Google Cloud credentials configured"
+    # Remove all whitespace and newlines from base64 string
+    CLEAN_BASE64=$(echo "$GOOGLE_APPLICATION_CREDENTIALS_BASE64" | tr -d '[:space:]')
+    
+    # Decode base64 and write to file
+    if echo "$CLEAN_BASE64" | base64 -d > /app/secrets/google-credentials.json 2>/dev/null; then
+        export GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/google-credentials.json
+        echo "✓ Google Cloud credentials configured"
+    else
+        echo "⚠ Warning: Failed to decode GOOGLE_APPLICATION_CREDENTIALS_BASE64 (app may use API key instead)"
+    fi
+else
+    echo "⚠ Warning: GOOGLE_APPLICATION_CREDENTIALS_BASE64 not set (app may use API key instead)"
 fi
+
+# Ensure PORT is set (Coolify sets this dynamically)
+export PORT=${PORT:-3000}
+export HOSTNAME=${HOSTNAME:-0.0.0.0}
+
+echo "Starting Next.js server on ${HOSTNAME}:${PORT}"
+
+# Start the server
 exec "$@"
 EOF
 RUN chmod +x /app/setup-credentials.sh

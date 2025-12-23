@@ -1,178 +1,156 @@
-# Troubleshooting: Stuck on "Redirecting to your dashboard..."
+# Troubleshooting Deployment Issues
 
-## Problem
+## Issue: "no available server" / HTTP 503 Service Unavailable
 
-After logging in, you see "Loading... Redirecting to your dashboard..." but never get redirected.
+If you're seeing a 503 error after deployment, follow these steps:
 
-## Common Causes & Solutions
+### Step 1: Check Container Logs in Coolify
 
-### 1. User Not Found in Convex Database
-
-**Symptom**: Debug panel shows "Convex Role Query: ❌ Not Found"
-
-**Solution**:
-1. Make sure you've signed in at least once (this creates your user record)
-2. Check Convex Dashboard → Data → Tables → users
-3. Verify your user exists with your email
-4. If missing, sign out and sign in again to trigger UserSync
-
-### 2. Clerk ID Mismatch
-
-**Symptom**: User exists but role query returns null
-
-**Check**:
-1. In Convex Dashboard, look at your user record
-2. Note the `clerkId` field value
-3. In Clerk Dashboard, find your User ID
-4. They should match (both should start with `user_`)
-
-**If they don't match**:
-- The `clerkId` in Convex might be wrong
-- Delete your user record in Convex
-- Sign out and sign in again to recreate it
-
-### 3. Role Not Set Correctly
-
-**Symptom**: Debug panel shows role as "user" but you set it to "admin"
-
-**Solution**:
-1. Go to Convex Dashboard → Data → Tables → users
-2. Find your user record
-3. Verify the `role` field shows `"admin"` (with quotes)
-4. Make sure it's exactly `"admin"` not `admin` or `Admin`
-
-### 4. Convex Authentication Not Working
-
-**Symptom**: Convex queries fail silently
-
-**Check**:
-1. Open browser console (F12)
-2. Look for errors related to Convex
-3. Check Network tab for failed requests to Convex
-
-**Solution**:
-1. Verify `NEXT_PUBLIC_CONVEX_URL` is set in `.env.local`
-2. Make sure Convex is running: `npx convex dev`
-3. Check Convex Dashboard for any errors
-
-### 5. Clerk JWT Template Not Set Up
-
-**Symptom**: Authentication errors in console
-
-**Solution**:
-1. Go to Clerk Dashboard → JWT Templates
-2. Make sure you have a template named `convex`
-3. If missing, create it (see SETUP_ADMIN.md)
-
-## Debug Steps
-
-### Step 1: Check Debug Panel
-
-Look at the bottom-right corner of the page. You should see:
-- ✅ Clerk Loaded
-- Your Clerk User ID
-- Convex Role Query status
-- Your current role (if found)
-
-### Step 2: Check Browser Console
-
-1. Open Developer Tools (F12)
-2. Go to Console tab
+1. Go to your deployment in Coolify
+2. Click on **"Logs"** tab
 3. Look for:
-   - Errors (red text)
-   - Warnings (yellow text)
-   - Log messages from RoleRedirect
+   - Error messages
+   - "Starting Next.js server" message
+   - Any crash/exit messages
+   - Missing environment variable warnings
 
-### Step 3: Check Convex Dashboard
+**Common errors to look for:**
+- `Error: Cannot find module` - Missing dependencies
+- `EADDRINUSE` - Port conflict
+- `Missing environment variable` - Configuration issue
+- `Google Cloud credentials` errors
 
-1. Go to Convex Dashboard → Data → Tables → users
-2. Find your user record
-3. Verify:
-   - `clerkId` matches your Clerk User ID
-   - `role` is set correctly (`"user"` or `"admin"`)
-   - `email` matches your email
+### Step 2: Verify Environment Variables
 
-### Step 4: Manual Redirect Test
+In Coolify, go to your deployment → **Configuration** → **Environment Variables**
 
-Try navigating directly:
-- `http://localhost:3000/user` (for regular users)
-- `http://localhost:3000/admin` (for admins)
+**Required variables:**
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` - Your Clerk publishable key
+- `CLERK_SECRET_KEY` - Your Clerk secret key
+- `NEXT_PUBLIC_CONVEX_URL` - Your Convex deployment URL
+- `CONVEX_DEPLOYMENT` - Your Convex deployment name
+- `GOOGLE_APPLICATION_CREDENTIALS_BASE64` - Base64 encoded Google Cloud service account JSON
+- `GOOGLE_CLOUD_PROJECT_ID` - Your Google Cloud project ID
+- `PORT` - Should be set automatically by Coolify (don't override unless needed)
+- `HOSTNAME` - Should be `0.0.0.0` (set automatically)
 
-If these work, the issue is with the redirect logic, not authentication.
+**Optional but recommended:**
+- `GOOGLE_CLOUD_API_KEY` - Alternative to service account
+- `NEXT_PUBLIC_APP_URL` - Your app URL (e.g., `https://translator.clickbric.com`)
 
-## Quick Fixes
+### Step 3: Check Port Configuration
 
-### Fix 1: Force User Recreation
+1. In Coolify, go to **Configuration** → **Ports**
+2. Ensure the port mapping is correct (usually Coolify handles this automatically)
+3. The app should listen on the port Coolify assigns (check `PORT` env var)
 
-1. Go to Convex Dashboard → Data → Tables → users
-2. Delete your user record
-3. Sign out of the app
-4. Sign in again
-5. Check if user is recreated with correct role
+### Step 4: Test Health Check Endpoint
 
-### Fix 2: Manual Role Update
-
-1. Go to Convex Dashboard → Data → Tables → users
-2. Find your user
-3. Edit the `role` field
-4. Set it to `"admin"` (with quotes)
-5. Save
-6. Refresh your browser
-
-### Fix 3: Use Function to Set Role
-
-1. Go to Convex Dashboard → Functions
-2. Find `adminSetup:makeAdminByEmail`
-3. Run it with your email
-4. Refresh browser
-
-## Still Not Working?
-
-1. **Check all environment variables**:
+1. In Coolify, go to **Terminal** tab
+2. Run:
    ```bash
-   cat .env.local
+   curl http://localhost:${PORT}/api/health
    ```
-   Make sure all required vars are set
+   (Replace `${PORT}` with the actual port number from environment variables)
 
-2. **Restart everything**:
+Expected response:
+```json
+{
+  "status": "ok",
+  "timestamp": "2025-12-23T...",
+  "service": "translator-app"
+}
+```
+
+### Step 5: Check Container Status
+
+1. In Coolify, check the deployment status
+2. If status is **"Exited"**, check logs for exit reason
+3. If status is **"Running"** but still getting 503, check:
+   - DNS configuration
+   - Traefik routing rules
+   - SSL certificate status
+
+### Step 6: Verify DNS Configuration
+
+1. Ensure your subdomain (`translator.clickbric.com`) has an **A record** pointing to your VPS IP
+2. Check DNS propagation:
    ```bash
-   # Stop Convex (Ctrl+C)
-   # Stop Next.js (Ctrl+C)
-   # Then restart:
-   npx convex dev
-   # In another terminal:
-   npm run dev
+   dig translator.clickbric.com
+   # or
+   nslookup translator.clickbric.com
    ```
 
-3. **Clear browser cache**:
-   - Hard refresh: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows)
-   - Or clear browser cache completely
+### Step 7: Check Traefik Configuration (Coolify)
 
-4. **Check Convex logs**:
-   - In Convex Dashboard → Logs
-   - Look for errors related to your queries
+Coolify uses Traefik as a reverse proxy. Verify:
+1. Domain is correctly configured in Coolify
+2. SSL certificate is issued (check in Coolify dashboard)
+3. Traefik is routing to your container correctly
 
-## Expected Behavior
+### Step 8: Common Fixes
 
-When everything works correctly:
+#### Fix 1: Missing Environment Variables
+If logs show missing env vars:
+1. Add all required variables in Coolify
+2. Redeploy the application
 
-1. **Sign In** → Redirects to home page (`/`)
-2. **Home Page** → Shows "Loading..." briefly
-3. **UserSync** → Creates/updates user in Convex (happens in background)
-4. **RoleRedirect** → Checks role and redirects:
-   - If `role === "user"` → `/user`
-   - If `role === "admin"` → `/admin`
-5. **Dashboard** → Shows appropriate dashboard
+#### Fix 2: Google Cloud Credentials Issue
+If you see Google Cloud errors:
+1. Verify `GOOGLE_APPLICATION_CREDENTIALS_BASE64` is set correctly
+2. Test base64 encoding:
+   ```bash
+   # On your local machine
+   base64 -i translation-app-480807-4b54abde49b5.json | tr -d '\n'
+   ```
+3. Copy the entire output (no newlines) to Coolify
 
-Total time: Usually 1-3 seconds
+#### Fix 3: Port Binding Issue
+If you see port errors:
+1. Don't manually set `PORT` in Coolify (let it auto-assign)
+2. Ensure `HOSTNAME=0.0.0.0` is set
+3. Check that no other service is using the port
+
+#### Fix 4: Application Crash on Startup
+If the container exits immediately:
+1. Check logs for the exact error
+2. Verify all dependencies are installed
+3. Check if Convex/Clerk URLs are accessible from the container
+4. Verify Google Cloud credentials are valid
+
+### Step 9: Manual Container Debugging
+
+If needed, you can debug the container manually:
+
+1. In Coolify, go to **Terminal** tab
+2. Run:
+   ```bash
+   # Check if server.js exists
+   ls -la server.js
+   
+   # Check environment variables
+   env | grep -E "(PORT|HOSTNAME|CLERK|CONVEX|GOOGLE)"
+   
+   # Try starting the server manually
+   node server.js
+   ```
+
+### Step 10: Rebuild and Redeploy
+
+If nothing else works:
+1. In Coolify, go to **Deployments** tab
+2. Click **"Redeploy"** or **"Deploy"**
+3. Watch the build logs for any errors
+4. Check deployment logs after container starts
 
 ## Getting Help
 
-If none of these work, check:
-1. Browser console for specific error messages
-2. Convex Dashboard logs
-3. Terminal output from `npx convex dev`
-4. Terminal output from `npm run dev`
+If the issue persists, collect this information:
 
-Share these error messages for more specific help!
+1. **Container logs** (from Coolify Logs tab)
+2. **Environment variables** (mask sensitive values)
+3. **Deployment configuration** (screenshot of Coolify config)
+4. **DNS configuration** (A record details)
+5. **Error messages** (exact text from browser/console)
 
+Then share these details for further assistance.
