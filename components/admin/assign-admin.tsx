@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useUser } from '@clerk/nextjs';
+import { NoticeDialog, type NoticeState } from '@/components/ui/notice-dialog';
 
 /**
  * Component to assign admin role to a user
@@ -11,11 +12,15 @@ import { useUser } from '@clerk/nextjs';
  */
 export function AssignAdmin() {
   const { user } = useUser();
-  const allUsers = useQuery(api.users.getAllUsers);
+  const allUsers = useQuery(
+    api.users.getAllUsers,
+    user?.id ? { clerkId: user.id } : 'skip'
+  );
   const updateUserRole = useMutation(api.users.updateUserRole);
   const createOrUpdateUser = useMutation(api.users.createOrUpdateUser);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [isUpdating, setIsUpdating] = useState(false);
+  const [notice, setNotice] = useState<NoticeState | null>(null);
 
   // First, ensure current user is in database
   const ensureCurrentUser = async () => {
@@ -45,13 +50,16 @@ export function AssignAdmin() {
           userId: targetUser._id,
           role: 'admin',
         });
-        alert('Admin role assigned successfully!');
+        setNotice({ title: 'Success', message: 'Admin role assigned successfully!' });
         setSelectedUserId('');
       } else {
-        alert('User not found');
+        setNotice({ title: 'Not found', message: 'User not found.' });
       }
     } catch (error: any) {
-      alert(`Failed to assign admin: ${error.message}`);
+      setNotice({
+        title: 'Assign admin failed',
+        message: error?.message ? String(error.message) : String(error),
+      });
     } finally {
       setIsUpdating(false);
     }
@@ -59,6 +67,7 @@ export function AssignAdmin() {
 
   return (
     <div className="p-6 bg-white rounded-lg shadow">
+      <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
       <h2 className="text-xl font-bold mb-4">Assign Admin Role</h2>
       
       <div className="space-y-4">

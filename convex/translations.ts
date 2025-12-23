@@ -68,6 +68,25 @@ export const upsertTranslation = mutation({
     orderId: v.id("orders"),
     fileName: v.string(),
     fileIndex: v.number(),
+    translationProvider: v.optional(
+      v.union(
+        v.literal("google"),
+        v.literal("openai"),
+        v.literal("anthropic"),
+        v.literal("openrouter")
+      )
+    ),
+    documentDomain: v.optional(
+      v.union(
+        v.literal("general"),
+        v.literal("certificate"),
+        v.literal("legal"),
+        v.literal("medical"),
+        v.literal("technical")
+      )
+    ),
+    openRouterModel: v.optional(v.string()),
+    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"))),
     segments: v.array(
       v.object({
         id: v.string(),
@@ -113,12 +132,36 @@ export const upsertTranslation = mutation({
 
     if (existing) {
       // Update existing translation
-      await ctx.db.patch(existing._id, {
+      const patch: {
+        segments: typeof args.segments;
+        status: typeof args.status;
+        progress: number;
+        updatedAt: number;
+        translationProvider?: "google" | "openai" | "anthropic" | "openrouter";
+        documentDomain?: "general" | "certificate" | "legal" | "medical" | "technical";
+        openRouterModel?: string;
+        ocrQuality?: "low" | "high";
+      } = {
         segments: args.segments,
         status: args.status,
         progress: args.progress,
         updatedAt: now,
-      });
+      };
+
+      if (args.translationProvider !== undefined) {
+        patch.translationProvider = args.translationProvider;
+      }
+      if (args.documentDomain !== undefined) {
+        patch.documentDomain = args.documentDomain;
+      }
+      if (args.openRouterModel !== undefined) {
+        patch.openRouterModel = args.openRouterModel;
+      }
+      if (args.ocrQuality !== undefined) {
+        patch.ocrQuality = args.ocrQuality;
+      }
+
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     } else {
       // Create new translation
@@ -126,6 +169,10 @@ export const upsertTranslation = mutation({
         orderId: args.orderId,
         fileName: args.fileName,
         fileIndex: args.fileIndex,
+        translationProvider: args.translationProvider,
+        documentDomain: args.documentDomain,
+        openRouterModel: args.openRouterModel,
+        ocrQuality: args.ocrQuality,
         segments: args.segments,
         status: args.status,
         progress: args.progress,

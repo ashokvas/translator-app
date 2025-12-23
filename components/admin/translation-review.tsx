@@ -11,6 +11,16 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getLanguageName } from '@/lib/languages';
+import { Select, SelectItem } from '@/components/ui/select';
+import { Dialog } from '@/components/ui/dialog';
+import {
+  DOCUMENT_DOMAINS,
+  OPENROUTER_DEFAULT_MODEL,
+  OPENROUTER_MODEL_PRESETS,
+  TRANSLATION_PROVIDERS,
+  type DocumentDomain,
+  type TranslationProvider,
+} from '@/lib/translation-providers';
 
 interface TranslationReviewProps {
   orderId: Id<'orders'>;
@@ -38,6 +48,12 @@ export function TranslationReview({
   const { user } = useUser();
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
   const [localEdits, setLocalEdits] = useState<Record<string, string>>({});
+  const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('google');
+  const [documentDomain, setDocumentDomain] = useState<DocumentDomain>('general');
+  const [openRouterModel, setOpenRouterModel] = useState<string>(OPENROUTER_DEFAULT_MODEL);
+  const [ocrQuality, setOcrQuality] = useState<'high' | 'low'>('high');
+  const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false);
+  const [notice, setNotice] = useState<{ title: string; message: string } | null>(null);
 
   const translation = useQuery(
     api.translations.getTranslationByFile,
@@ -61,6 +77,23 @@ export function TranslationReview({
         edits[seg.id] = seg.translatedText;
       });
       setLocalEdits(edits);
+    }
+  }, [translation]);
+
+  // Initialize provider/domain selection from stored translation metadata (if present)
+  useEffect(() => {
+    if (!translation) return;
+    if (translation.translationProvider) {
+      setTranslationProvider(translation.translationProvider as TranslationProvider);
+    }
+    if (translation.documentDomain) {
+      setDocumentDomain(translation.documentDomain as DocumentDomain);
+    }
+    if ((translation as any).openRouterModel) {
+      setOpenRouterModel(String((translation as any).openRouterModel));
+    }
+    if ((translation as any).ocrQuality === 'low' || (translation as any).ocrQuality === 'high') {
+      setOcrQuality((translation as any).ocrQuality);
     }
   }, [translation]);
 
@@ -88,7 +121,10 @@ export function TranslationReview({
         setEditingSegmentId(null);
       } catch (error) {
         console.error('Failed to save segment:', error);
-        alert(`Failed to save: ${error instanceof Error ? error.message : String(error)}`);
+        setNotice({
+          title: 'Save failed',
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
     },
     [user?.id, translation, localEdits, updateSegment]
@@ -96,11 +132,11 @@ export function TranslationReview({
 
   const handleApprove = useCallback(async () => {
     if (!user?.id || !translation) return;
+    setIsApproveDialogOpen(true);
+  }, [user?.id, translation]);
 
-    const confirmed = confirm(
-      'This will approve the translation and generate a Word document with all translated pages. Continue?'
-    );
-    if (!confirmed) return;
+  const handleConfirmApprove = useCallback(async () => {
+    if (!user?.id || !translation) return;
 
     try {
       // Step 1: Approve the translation
@@ -121,17 +157,37 @@ export function TranslationReview({
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.details || 'Failed to generate document');
+        const errorText = await response.text().catch(() => '');
+        const errorData = (() => {
+          try {
+            return errorText ? (JSON.parse(errorText) as any) : {};
+          } catch {
+            return {};
+          }
+        })();
+        throw new Error(
+          errorData?.error ||
+            errorData?.details ||
+            errorText ||
+            `Failed to generate document (HTTP ${response.status})`
+        );
       }
 
       const result = await response.json();
-      
-      alert(`Translation approved and document generated!\nFile: ${result.fileName}`);
+
+      setNotice({
+        title: 'Approved',
+        message: `Translation approved and document generated.\nFile: ${result.fileName}`,
+      });
       onApprove();
     } catch (error) {
       console.error('Failed to approve translation:', error);
-      alert(`Failed to approve: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice({
+        title: 'Approval failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsApproveDialogOpen(false);
     }
   }, [user?.id, translation, approveTranslation, onApprove, orderId, fileName]);
 
@@ -152,21 +208,54 @@ export function TranslationReview({
           fileType: fileType || '', // API will fetch from Convex if empty
           sourceLanguage,
           targetLanguage,
+          translationProvider,
+          documentDomain,
+          openRouterModel: translationProvider === 'openrouter' ? openRouterModel : undefined,
+          ocrQuality,
         }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.details || 'Retranslation failed');
+        const errorText = await response.text().catch(() => '');
+        const errorData = (() => {
+          try {
+            return errorText ? (JSON.parse(errorText) as any) : {};
+          } catch {
+            return {};
+          }
+        })();
+        throw new Error(
+          errorData?.details ||
+            errorData?.error ||
+            errorText ||
+            `Retranslation failed (HTTP ${response.status})`
+        );
       }
 
       // Translation will be updated via Convex subscription
-      alert('Retranslation started. Please wait...');
+      setNotice({
+        title: 'Retranslation started',
+        message: 'Retranslation started. Please wait…',
+      });
     } catch (error) {
       console.error('Retranslation error:', error);
-      alert(`Failed to retranslate: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice({
+        title: 'Retranslation failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-  }, [user?.id, orderId, fileName, fileIndex, sourceLanguage, targetLanguage]);
+  }, [
+    user?.id,
+    orderId,
+    fileName,
+    fileIndex,
+    sourceLanguage,
+    targetLanguage,
+    translationProvider,
+    documentDomain,
+    openRouterModel,
+    ocrQuality,
+  ]);
 
   if (!translation) {
     return (
@@ -185,6 +274,36 @@ export function TranslationReview({
 
   return (
     <div className="space-y-6">
+      <Dialog
+        open={isApproveDialogOpen}
+        onOpenChange={setIsApproveDialogOpen}
+        title="Approve translation?"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-700">
+            This will approve the translation and generate a Word document with all translated
+            pages.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsApproveDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={handleConfirmApprove}>
+              Approve & Generate
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog open={!!notice} onOpenChange={(open) => !open && setNotice(null)} title={notice?.title}>
+        <div className="space-y-4">
+          <p className="text-sm text-gray-700 whitespace-pre-wrap">{notice?.message}</p>
+          <div className="flex justify-end">
+            <Button onClick={() => setNotice(null)}>Close</Button>
+          </div>
+        </div>
+      </Dialog>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -355,11 +474,88 @@ export function TranslationReview({
       {isReviewing && (
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-2">
                 <p className="text-sm text-gray-600">
                   Review and edit translations above, then approve when ready.
                 </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Model
+                    </label>
+                    <Select
+                      value={`${translationProvider}:${translationProvider === 'openrouter' ? openRouterModel : ''}`}
+                      onValueChange={(value) => {
+                        if (value === 'google:') {
+                          setTranslationProvider('google');
+                          return;
+                        }
+                        if (value.startsWith('openrouter:')) {
+                          setTranslationProvider('openrouter');
+                          setOpenRouterModel(value.slice('openrouter:'.length) || OPENROUTER_DEFAULT_MODEL);
+                          return;
+                        }
+                      }}
+                    >
+                      <SelectItem value={`openrouter:${OPENROUTER_DEFAULT_MODEL}`}>
+                        OpenRouter: OpenAI GPT-5.2 (latest)
+                      </SelectItem>
+                      <SelectItem value="openrouter:anthropic/claude-sonnet-4.5">
+                        OpenRouter: Anthropic Claude Sonnet 4.5 (latest)
+                      </SelectItem>
+                      <SelectItem value="google:">Google Translate</SelectItem>
+                    </Select>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Tip: for latest models, use OpenRouter. Google is a fallback.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Domain
+                    </label>
+                    <Select value={documentDomain} onValueChange={(v) => setDocumentDomain(v as DocumentDomain)}>
+                      {DOCUMENT_DOMAINS.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.label}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    OCR quality
+                  </label>
+                  <Select value={ocrQuality} onValueChange={(v) => setOcrQuality(v as 'high' | 'low')}>
+                    <SelectItem value="high">High (recommended for scans)</SelectItem>
+                    <SelectItem value="low">Low (faster / cleaner simple images)</SelectItem>
+                  </Select>
+                </div>
+                {translationProvider === 'openrouter' && (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        OpenRouter model
+                      </label>
+                      <Select value={openRouterModel} onValueChange={setOpenRouterModel}>
+                        {OPENROUTER_MODEL_PRESETS.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.label}
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="sm:pt-6">
+                      <input
+                        value={openRouterModel}
+                        onChange={(e) => setOpenRouterModel(e.target.value)}
+                        className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm"
+                        placeholder="e.g. anthropic/claude-3.5-sonnet"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex gap-3">
                 <Button variant="outline" onClick={handleRetranslate}>

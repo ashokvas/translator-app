@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  translator-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: translator-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      # Clerk Authentication
+      - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+      # Convex Database
+      - NEXT_PUBLIC_CONVEX_URL=${NEXT_PUBLIC_CONVEX_URL}
+      - CONVEX_DEPLOYMENT=${CONVEX_DEPLOYMENT}
+      # Google Cloud (base64 encoded service account JSON)
+      - GOOGLE_CLOUD_PROJECT_ID=${GOOGLE_CLOUD_PROJECT_ID}
+      - GOOGLE_APPLICATION_CREDENTIALS_BASE64=${GOOGLE_APPLICATION_CREDENTIALS_BASE64}
+      # Alternative: Use API key instead of service account
+      - GOOGLE_CLOUD_API_KEY=${GOOGLE_CLOUD_API_KEY}
+      # PayPal (optional - add later)
+      - NEXT_PUBLIC_PAYPAL_CLIENT_ID=${NEXT_PUBLIC_PAYPAL_CLIENT_ID}
+      # LibreOffice path (set in Dockerfile)
+      - LIBREOFFICE_PATH=/usr/bin/soffice
+      # App URL
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits (adjust based on your VPS)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+

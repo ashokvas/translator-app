@@ -11,6 +11,17 @@ import type { Doc } from '@/convex/_generated/dataModel';
 import { TranslationReview } from './translation-review';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
+import { Select, SelectItem } from '@/components/ui/select';
+import { Dialog } from '@/components/ui/dialog';
+import { NoticeDialog, type NoticeState } from '@/components/ui/notice-dialog';
+import {
+  DOCUMENT_DOMAINS,
+  OPENROUTER_DEFAULT_MODEL,
+  OPENROUTER_MODEL_PRESETS,
+  TRANSLATION_PROVIDERS,
+  type DocumentDomain,
+  type TranslationProvider,
+} from '@/lib/translation-providers';
 
 // Extended order type with user information
 type OrderWithUser = Doc<'orders'> & {
@@ -31,6 +42,11 @@ export function OrderManagement() {
   const [translatingFileIndex, setTranslatingFileIndex] = useState<number | null>(null);
   const [reviewingFileIndex, setReviewingFileIndex] = useState<number | null>(null);
   const [translationProgress, setTranslationProgress] = useState<Record<number, number>>({});
+  const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('google');
+  const [documentDomain, setDocumentDomain] = useState<DocumentDomain>('general');
+  const [openRouterModel, setOpenRouterModel] = useState<string>(OPENROUTER_DEFAULT_MODEL);
+  const [ocrQuality, setOcrQuality] = useState<'high' | 'low'>('high');
+  const [notice, setNotice] = useState<NoticeState | null>(null);
 
   const orderDetails = useQuery(
     api.orders.getOrderWithFiles,
@@ -65,14 +81,10 @@ export function OrderManagement() {
           [fileIndex]: translation.progress,
         }));
 
-        // Stop translating if status changed to review or approved
-        if (
-          translation.status === 'review' ||
-          translation.status === 'approved'
-        ) {
-          setTranslatingFileIndex((prev) =>
-            prev === fileIndex ? null : prev
-          );
+        // Stop the local "Translating..." UI whenever the backend record is no longer translating.
+        // This prevents the UI from getting stuck at 0% if the API fails and resets status to pending.
+        if (translation.status !== 'translating') {
+          setTranslatingFileIndex((prev) => (prev === fileIndex ? null : prev));
         }
       }
     });
@@ -86,7 +98,7 @@ export function OrderManagement() {
 
   const handleUploadTranslations = async () => {
     if (!selectedOrder || !user?.id || translatedFiles.length === 0) {
-      alert('Please select translated files to upload');
+      setNotice({ title: 'Missing files', message: 'Please select translated files to upload.' });
       return;
     }
 
@@ -140,12 +152,15 @@ export function OrderManagement() {
         translatedFiles: uploadedTranslatedFiles,
       });
 
-      alert('Translated files uploaded successfully!');
+      setNotice({ title: 'Uploaded', message: 'Translated files uploaded successfully!' });
       setTranslatedFiles([]);
       setSelectedOrder(null);
     } catch (error) {
       console.error('Upload error:', error);
-      alert(`Failed to upload translations: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice({
+        title: 'Upload failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setIsUploading(false);
     }
@@ -171,20 +186,42 @@ export function OrderManagement() {
           fileType: file.fileType,
           sourceLanguage: orderDetails.sourceLanguage,
           targetLanguage: orderDetails.targetLanguage,
+          translationProvider,
+          documentDomain,
+          openRouterModel: translationProvider === 'openrouter' ? openRouterModel : undefined,
+          ocrQuality,
         }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.details || 'Translation failed');
+        const errorText = await response.text().catch(() => '');
+        const errorData = (() => {
+          try {
+            return errorText ? (JSON.parse(errorText) as any) : {};
+          } catch {
+            return {};
+          }
+        })();
+        throw new Error(
+          errorData?.details ||
+            errorData?.error ||
+            errorText ||
+            `Translation failed (HTTP ${response.status})`
+        );
       }
 
       // The translations query will automatically update via Convex subscription
       // We'll monitor it via useEffect instead of polling
-      alert('Translation started! The progress will update automatically.');
+      setNotice({
+        title: 'Translation started',
+        message: 'Translation started. Progress will update automatically.',
+      });
     } catch (error) {
       console.error('Translation error:', error);
-      alert(`Translation failed: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice({
+        title: 'Translation failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
       setTranslatingFileIndex(null);
     }
   };
@@ -203,15 +240,20 @@ export function OrderManagement() {
           | 'completed'
           | 'cancelled',
       });
-      alert('Order status updated successfully!');
+      setNotice({ title: 'Updated', message: 'Order status updated successfully!' });
     } catch (error) {
       console.error('Status update error:', error);
-      alert(`Failed to update status: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice({
+        title: 'Update failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
   return (
     <div className="space-y-6">
+      <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
+
       <h2 className="text-2xl font-bold text-gray-900">Order Management</h2>
 
       {/* Orders List */}
@@ -382,6 +424,101 @@ export function OrderManagement() {
               </p>
             </div>
           ) : null}
+
+          {/* Translation Model (recommended) & Domain */}
+          {orderDetails.status !== 'pending' && (
+            <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Model
+                </label>
+                <Select
+                  value={`${translationProvider}:${translationProvider === 'openrouter' ? openRouterModel : ''}`}
+                  onValueChange={(value) => {
+                    if (value === 'google:') {
+                      setTranslationProvider('google');
+                      return;
+                    }
+                    if (value.startsWith('openrouter:')) {
+                      setTranslationProvider('openrouter');
+                      setOpenRouterModel(value.slice('openrouter:'.length) || OPENROUTER_DEFAULT_MODEL);
+                      return;
+                    }
+                  }}
+                >
+                  <SelectItem value="openrouter:anthropic/claude-opus-4.5">
+                    Claude Opus 4.5 (best quality)
+                  </SelectItem>
+                  <SelectItem value={`openrouter:${OPENROUTER_DEFAULT_MODEL}`}>
+                    OpenAI GPT-5.2 (latest)
+                  </SelectItem>
+                  <SelectItem value="openrouter:anthropic/claude-sonnet-4.5">
+                    Claude Sonnet 4.5 (fast)
+                  </SelectItem>
+                  <SelectItem value="google:">Google Cloud Translation</SelectItem>
+                </Select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Tip: AI models (OpenRouter) provide context-aware translation. Google uses Neural Machine Translation.
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Domain
+                </label>
+                <Select
+                  value={documentDomain}
+                  onValueChange={(v) => setDocumentDomain(v as DocumentDomain)}
+                >
+                  {DOCUMENT_DOMAINS.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.label}
+                    </SelectItem>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {orderDetails.status !== 'pending' && (
+            <div className="mb-6">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                OCR quality
+              </label>
+              <Select value={ocrQuality} onValueChange={(v) => setOcrQuality(v as 'high' | 'low')}>
+                <SelectItem value="high">High (recommended for scans)</SelectItem>
+                <SelectItem value="low">Low (faster / cleaner simple images)</SelectItem>
+              </Select>
+              <p className="mt-1 text-xs text-gray-500">
+                Applies to scanned PDFs/images (OCR). Text PDFs/DOCX/XLSX are unaffected.
+              </p>
+            </div>
+          )}
+
+          {orderDetails.status !== 'pending' && translationProvider === 'openrouter' && (
+            <div className="mb-6">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                OpenRouter model
+              </label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Select value={openRouterModel} onValueChange={setOpenRouterModel}>
+                  {OPENROUTER_MODEL_PRESETS.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <input
+                  value={openRouterModel}
+                  onChange={(e) => setOpenRouterModel(e.target.value)}
+                  className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm"
+                  placeholder="e.g. anthropic/claude-3.5-sonnet"
+                />
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Tip: paste any OpenRouter model ID (from your OpenRouter dashboard models list).
+              </p>
+            </div>
+          )}
 
           {/* Original Files with Translate buttons */}
           <div className="mb-6">

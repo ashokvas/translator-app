@@ -1,10 +1,12 @@
 'use client';
 
 import { PayPalScriptProvider, PayPalButtons } from '@paypal/react-paypal-js';
+import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useUser } from '@clerk/nextjs';
 import { Id } from '@/convex/_generated/dataModel';
+import { NoticeDialog, type NoticeState } from '@/components/ui/notice-dialog';
 
 interface UploadedFile {
   fileName: string;
@@ -35,6 +37,7 @@ export function PayPalButton({
   totalPages 
 }: PayPalButtonProps) {
   const { user } = useUser();
+  const [notice, setNotice] = useState<NoticeState | null>(null);
   const updateOrderPayment = useMutation(api.orders.updateOrderPayment);
   const createOrder = useMutation(api.orders.createOrder);
 
@@ -75,7 +78,7 @@ export function PayPalButton({
   const onApprove = async (data: { orderID: string }) => {
     try {
       if (!user?.id) {
-        alert('Please sign in to complete payment');
+        setNotice({ title: 'Sign in required', message: 'Please sign in to complete payment.' });
         return;
       }
 
@@ -149,27 +152,30 @@ export function PayPalButton({
 
         onSuccess(data.orderID);
       } else {
-        alert('Payment capture failed. Please contact support.');
+        setNotice({ title: 'Payment failed', message: 'Payment capture failed. Please contact support.' });
       }
     } catch (error) {
       console.error('Error capturing payment:', error);
-      alert('Payment processing failed. Please contact support.');
+      setNotice({ title: 'Payment failed', message: 'Payment processing failed. Please contact support.' });
     }
   };
 
   return (
-    <PayPalScriptProvider options={{ clientId: paypalClientId }}>
-      <PayPalButtons
-        createOrder={createPayPalOrder}
-        onApprove={onApprove}
-        style={{
-          layout: 'vertical',
-          color: 'blue',
-          shape: 'rect',
-          label: 'paypal',
-        }}
-      />
-    </PayPalScriptProvider>
+    <>
+      <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
+      <PayPalScriptProvider options={{ clientId: paypalClientId }}>
+        <PayPalButtons
+          createOrder={createPayPalOrder}
+          onApprove={onApprove}
+          style={{
+            layout: 'vertical',
+            color: 'blue',
+            shape: 'rect',
+            label: 'paypal',
+          }}
+        />
+      </PayPalScriptProvider>
+    </>
   );
 }
 

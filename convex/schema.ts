@@ -44,6 +44,7 @@ export default defineSchema({
     amount: v.number(), // Total amount in USD
     sourceLanguage: v.string(), // Source language code
     targetLanguage: v.string(), // Target language code
+    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"))), // OCR preprocessing quality for scanned/image documents
     status: v.union(
       v.literal("pending"),
       v.literal("paid"),
@@ -67,6 +68,25 @@ export default defineSchema({
     orderId: v.id("orders"), // Reference to order
     fileName: v.string(), // Original file name
     fileIndex: v.number(), // Index of file in order.files array
+    translationProvider: v.optional(
+      v.union(
+        v.literal("google"),
+        v.literal("openai"),
+        v.literal("anthropic"),
+        v.literal("openrouter")
+      )
+    ),
+    documentDomain: v.optional(
+      v.union(
+        v.literal("general"),
+        v.literal("certificate"),
+        v.literal("legal"),
+        v.literal("medical"),
+        v.literal("technical")
+      )
+    ),
+    openRouterModel: v.optional(v.string()),
+    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"))),
     segments: v.array(
       v.object({
         id: v.string(), // Unique segment ID

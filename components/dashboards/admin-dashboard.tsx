@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Id } from '@/convex/_generated/dataModel';
 import { OrderManagement } from '@/components/admin/order-management';
 import { AdminOrderForm } from '@/components/admin/admin-order-form';
+import { NoticeDialog, type NoticeState } from '@/components/ui/notice-dialog';
 
 export function AdminDashboard() {
   const { user, isLoaded } = useUser();
@@ -29,6 +30,8 @@ export function AdminDashboard() {
     telephone: string;
   } | null>(null);
   const [activeTab, setActiveTab] = useState<'users' | 'orders' | 'new-order'>('users');
+  type UserDoc = NonNullable<typeof allUsers>[number];
+  const [notice, setNotice] = useState<NoticeState | null>(null);
 
   if (!isLoaded) {
     return (
@@ -56,13 +59,13 @@ export function AdminDashboard() {
       await updateUserRole({ userId, role: newRole });
     } catch (error) {
       console.error('Failed to update user role:', error);
-      alert('Failed to update user role');
+      setNotice({ title: 'Update failed', message: 'Failed to update user role.' });
     } finally {
       setUpdatingUserId(null);
     }
   };
 
-  const handleStartEdit = (user: typeof allUsers[0]) => {
+  const handleStartEdit = (user: UserDoc) => {
     setEditingUserId(user._id);
     setEditFormData({
       email: user.email,
@@ -92,7 +95,10 @@ export function AdminDashboard() {
       setEditFormData(null);
     } catch (error) {
       console.error('Failed to update user details:', error);
-      alert(`Failed to update user details: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice({
+        title: 'Update failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setUpdatingUserId(null);
     }
@@ -100,6 +106,7 @@ export function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>

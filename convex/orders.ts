@@ -21,6 +21,7 @@ export const createOrder = mutation({
     amount: v.number(),
     sourceLanguage: v.string(),
     targetLanguage: v.string(),
+    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"))), // OCR preprocessing quality
   },
   handler: async (ctx, args) => {
     // Find user by Clerk ID
@@ -48,6 +49,7 @@ export const createOrder = mutation({
       amount: args.amount,
       sourceLanguage: args.sourceLanguage,
       targetLanguage: args.targetLanguage,
+      ocrQuality: args.ocrQuality || "high", // Default to high quality
       status: "pending",
       estimatedDeliveryDate,
       createdAt: now,

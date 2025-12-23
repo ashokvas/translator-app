@@ -2,7 +2,17 @@ import { auth } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '@/convex/_generated/api';
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+  Table,
+  TableRow,
+  TableCell,
+  WidthType,
+} from 'docx';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -77,10 +87,49 @@ export async function POST(request: NextRequest) {
     }
 
     // Create Word document
-    const paragraphs: Paragraph[] = [];
+    const blocks: Array<Paragraph | Table> = [];
+
+    function normalizeLineForDocx(line: string) {
+      // Word can collapse leading spaces; preserve them using non‑breaking spaces.
+      const leadingSpacesMatch = line.match(/^ +/);
+      if (!leadingSpacesMatch) return line;
+      const leadingSpaces = leadingSpacesMatch[0].length;
+      return `${'\u00A0'.repeat(leadingSpaces)}${line.slice(leadingSpaces)}`;
+    }
+
+    function pushMultilineText(text: string, opts?: { after?: number }) {
+      const after = opts?.after ?? 0;
+      const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+      if (lines.length === 0) {
+        blocks.push(new Paragraph({ text: '', spacing: { after } }));
+        return;
+      }
+
+      lines.forEach((rawLine, idx) => {
+        const isLast = idx === lines.length - 1;
+        const line = normalizeLineForDocx(rawLine);
+        blocks.push(
+          new Paragraph({
+            children: [new TextRun({ text: line })],
+            spacing: { after: isLast ? after : 0 },
+          })
+        );
+      });
+    }
+
+    function paragraphsFromMultilineText(text: string): Paragraph[] {
+      const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+      if (lines.length === 0) return [new Paragraph({ text: '' })];
+      return lines.map((rawLine) => {
+        const line = normalizeLineForDocx(rawLine);
+        return new Paragraph({
+          children: [new TextRun({ text: line })],
+        });
+      });
+    }
 
     // Add title
-    paragraphs.push(
+    blocks.push(
       new Paragraph({
         text: `Translation: ${fileName}`,
         heading: HeadingLevel.HEADING_1,
@@ -89,7 +138,7 @@ export async function POST(request: NextRequest) {
     );
 
     // Add metadata
-    paragraphs.push(
+    blocks.push(
       new Paragraph({
         children: [
           new TextRun({
@@ -101,7 +150,7 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    paragraphs.push(
+    blocks.push(
       new Paragraph({
         children: [
           new TextRun({
@@ -114,57 +163,86 @@ export async function POST(request: NextRequest) {
     );
 
     // Add horizontal line
-    paragraphs.push(
+    blocks.push(
       new Paragraph({
         text: '─'.repeat(50),
         spacing: { after: 400 },
       })
     );
 
-    // Add each translated segment
-    translation.segments
-      .sort((a, b) => a.order - b.order)
-      .forEach((segment, index) => {
-        // Page header (if page number exists)
-        if (segment.pageNumber) {
-          paragraphs.push(
-            new Paragraph({
-              text: `Page ${segment.pageNumber}`,
-              heading: HeadingLevel.HEADING_2,
-              spacing: { before: 400, after: 200 },
-            })
-          );
-        }
+    const segmentsSorted = translation.segments.sort((a, b) => a.order - b.order);
 
-        // Translated text
-        paragraphs.push(
-          new Paragraph({
+    // Build bilingual table: Original (left) + Translation (right)
+    const tableRows: TableRow[] = [];
+
+    // Header row
+    tableRows.push(
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: 50, type: WidthType.PERCENTAGE },
+            children: [new Paragraph({ children: [new TextRun({ text: 'Original', bold: true })] })],
+          }),
+          new TableCell({
+            width: { size: 50, type: WidthType.PERCENTAGE },
+            children: [new Paragraph({ children: [new TextRun({ text: 'Translation', bold: true })] })],
+          }),
+        ],
+      })
+    );
+
+    let lastPageNumber: number | undefined;
+    for (const segment of segmentsSorted) {
+      if (segment.pageNumber && segment.pageNumber !== lastPageNumber) {
+        lastPageNumber = segment.pageNumber;
+        // Page separator row (spans both columns)
+        tableRows.push(
+          new TableRow({
             children: [
-              new TextRun({
-                text: segment.translatedText,
+              new TableCell({
+                columnSpan: 2,
+                children: [
+                  new Paragraph({
+                    text: `Page ${segment.pageNumber}`,
+                    heading: HeadingLevel.HEADING_2,
+                    spacing: { before: 300, after: 150 },
+                  }),
+                ],
               }),
             ],
-            spacing: { after: 300 },
           })
         );
+      }
 
-        // Add spacing between segments
-        if (index < translation.segments.length - 1) {
-          paragraphs.push(
-            new Paragraph({
-              text: '',
-              spacing: { after: 200 },
-            })
-          );
-        }
-      });
+      tableRows.push(
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: 50, type: WidthType.PERCENTAGE },
+              children: paragraphsFromMultilineText(segment.originalText || ''),
+            }),
+            new TableCell({
+              width: { size: 50, type: WidthType.PERCENTAGE },
+              children: paragraphsFromMultilineText(segment.translatedText || ''),
+            }),
+          ],
+        })
+      );
+    }
+
+    blocks.push(
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: tableRows,
+      })
+    );
 
     // Create document
     const doc = new Document({
       sections: [
         {
           properties: {},
-          children: paragraphs,
+          children: blocks,
         },
       ],
     });
@@ -178,7 +256,8 @@ export async function POST(request: NextRequest) {
     const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-      body: buffer,
+      // DOM lib types don't include Node.js Buffer in BodyInit, but Undici/Node fetch accepts Uint8Array.
+      body: new Uint8Array(buffer),
     });
 
     if (!uploadResponse.ok) {

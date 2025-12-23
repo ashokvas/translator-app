@@ -1,0 +1,67 @@
+# Dependencies
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js build output
+.next
+out
+
+# Production build
+build
+
+# Environment files (will be passed via docker-compose)
+.env
+.env.*
+.env.local
+.env.production
+.env.production.local
+
+# Google Cloud credentials (NEVER include in image)
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!next.config.json
+translation-app-*.json
+*-credentials.json
+*-service-account.json
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+!README.md
+
+# Convex local
+.convex
+
+# Test files
+__tests__
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+coverage
+
+# Deployment scripts (not needed in image)
+deploy/
+
+# Misc
+.vercel
+.turbo
+*.log
+

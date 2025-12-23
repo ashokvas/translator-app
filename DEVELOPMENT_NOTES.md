@@ -7,7 +7,7 @@ Translation service app with admin/user roles, file uploads, Google Cloud Transl
 - **Frontend**: Next.js 16 (App Router), React 19, TypeScript
 - **Auth**: Clerk
 - **Backend**: Convex (BaaS)
-- **Translation**: Google Cloud Translation API v2 + Vision API (OCR)
+- **Translation**: Google Cloud Translation API v3 + Vision API (OCR) via official SDKs
 - **Payments**: PayPal
 - **Styling**: Tailwind CSS, shadcn/ui components
 - **File Processing**: pdf-parse, pdfjs-dist, @napi-rs/canvas, docx, LibreOffice
@@ -34,6 +34,7 @@ Translation service app with admin/user roles, file uploads, Google Cloud Transl
 - Order statuses: pending, paid, processing, completed, cancelled
 - Email notifications (payment required, order confirmation)
 - Language selection with flags (25 European languages + auto-detect)
+- **Document quality selection** (High Quality / Standard Quality) for OCR optimization
 - Pricing: $35 per page
 
 ### Translation Workflow (Admin)
@@ -220,6 +221,140 @@ npm run lint
 - Orders created without payment have "pending" status
 - Translation segments are editable and auto-saved
 - Generated Word documents include all translated pages in sequence
+
+## Google Cloud API Configuration
+
+### Translation API (v3 with Service Account, v2 with API Key)
+The app supports both Google Cloud Translation API versions:
+
+**Authentication Options:**
+
+| Auth Method | API Version | Features |
+|-------------|-------------|----------|
+| Service Account | v3 (Advanced) | Best quality, glossary support, batch translation |
+| API Key | v2 (Basic) | Good quality, simpler setup, no service account needed |
+
+**v3 Benefits (requires service account):**
+- Neural Machine Translation with improved accuracy
+- Glossary support for consistent terminology
+- Batch translation for better performance
+- Document translation API (preserves formatting)
+- Better language detection
+- Custom model support
+
+**v2 Fallback (works with API key):**
+- Neural Machine Translation
+- Auto language detection
+- Works with just an API key (no service account needed)
+
+**Required Environment Variables:**
+```bash
+# Option 1: Service Account (Recommended - enables v3)
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+GOOGLE_CLOUD_PROJECT_ID=your-project-id
+
+# Option 2: API Key only (Falls back to v2)
+GOOGLE_CLOUD_API_KEY=your-api-key
+```
+
+**Important:** Translation v3 does NOT support API key authentication. If you only have `GOOGLE_CLOUD_API_KEY` set, the system automatically falls back to v2.
+
+### Vision API (Latest SDK)
+The app uses Google Cloud Vision API via the official `@google-cloud/vision` SDK.
+
+**Features:**
+- Document text detection (DOCUMENT_TEXT_DETECTION) for dense documents
+- Text detection (TEXT_DETECTION) for sparse text/signs
+- Handwriting recognition
+- Multi-language support
+- Layout analysis with bounding boxes
+
+**Supported OCR Quality Modes:**
+- `high`: Uses DOCUMENT_TEXT_DETECTION (better for documents, certificates)
+- `low`: Uses TEXT_DETECTION (faster, better for simple images)
+
+### SDK Files
+- `lib/google-cloud.ts` - Client initialization and helper functions
+- `lib/image-preprocessing.ts` - Image enhancement for OCR accuracy
+- Singleton pattern for efficient client reuse
+- Supports both API key and service account authentication
+
+### Image Preprocessing for OCR
+The app includes image preprocessing using Sharp to improve OCR accuracy on poor quality images.
+
+**Preprocessing Steps:**
+1. **Grayscale conversion** - Removes color noise
+2. **Contrast enhancement** - Makes text stand out (1.3x default)
+3. **Brightness adjustment** - Compensates for dark images
+4. **Sharpening** - Improves edge definition for text
+5. **Noise reduction** - Optional median filter for speckled images
+6. **Histogram normalization** - Stretches contrast range
+7. **Upscaling** - Optional 2x scaling for low-res images
+8. **Binarization** - Optional black/white conversion for scanned docs
+
+**Quality Presets:**
+- `LIGHT_PREPROCESSING_OPTIONS` - Fast, minimal processing for good quality images
+- `DEFAULT_PREPROCESSING_OPTIONS` - Balanced processing for most documents
+- `AGGRESSIVE_PREPROCESSING_OPTIONS` - Heavy processing for poor quality images
+- `SCANNED_DOCUMENT_OPTIONS` - Optimized for scanned documents with uneven lighting
+
+**How it Works:**
+- When OCR quality is set to "high", default preprocessing is applied
+- When OCR quality is set to "low", light preprocessing is used (faster)
+- Preprocessing happens before sending to Vision API
+- If preprocessing fails, falls back to original image
+
+## AI Translation Prompts
+
+### Document Domain Types
+The app supports specialized translation prompts for different document types:
+
+- **General** - Letters, reports, articles, correspondence, business documents
+- **Certificate/Official** - Certificates, diplomas, transcripts, academic records, vital records, licenses
+- **Legal** - Contracts, agreements, court documents, affidavits, powers of attorney, corporate docs
+- **Medical** - Clinical records, pharmaceutical documents, patient materials
+- **Technical** - Engineering docs, software manuals, specifications
+
+### Intelligent Document-Type Formatting
+The prompts automatically adapt formatting based on document type:
+
+| Document Type | Formatting Applied |
+|---------------|-------------------|
+| Forms/Certificates | "Label: Value" on separate lines |
+| Contracts/Legal | Preserved clause numbering, indentation, hierarchy |
+| Transcripts/Tables | Column alignment, row separation |
+| Letters/Narrative | Paragraph flow, greeting/body/closing structure |
+| Lists | Bullet points, numbering preserved |
+
+### Core Formatting Rules (All Documents)
+1. **Structure Preservation** - Mirror the source document's natural layout
+2. **Intelligent Spacing** - Blank lines between major sections
+3. **No Field Combining** - Never merge unrelated items with semicolons
+4. **Date Format** - "Month Day, Year" (May 17, 1981)
+5. **Numbers/IDs** - Preserved exactly as shown
+
+### Domain-Specific Features
+
+**Certificate/Official Documents:**
+- Field-by-field formatting for short-form documents
+- Transcript course/grade/credit alignment
+- Vital records with separate date fields
+- Official seal/stamp references
+
+**Legal Documents:**
+- Article/section/clause numbering preserved exactly
+- Recitals (WHEREAS) and definitions formatted properly
+- Party designations consistent throughout
+- Signature blocks and attestation maintained
+
+**General Documents:**
+- Adapts to letter, report, or form format
+- Maintains tone and register of original
+- Preserves emphasis and structure
+
+### Default Model
+- OpenRouter with `openai/gpt-5.2` is the default for best quality
+- Matches ChatGPT web application output format
 
 ## Troubleshooting
 

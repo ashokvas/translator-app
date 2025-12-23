@@ -9,6 +9,7 @@ import { AUTO_DETECT_LANGUAGE, LANGUAGES, getLanguageLabel, getLanguageName } fr
 import { Id } from '@/convex/_generated/dataModel';
 import { useRouter } from 'next/navigation';
 import { Select, SelectItem } from '@/components/ui/select';
+import { NoticeDialog, type NoticeState } from '@/components/ui/notice-dialog';
 
 interface UploadedFile {
   fileName: string;
@@ -19,6 +20,30 @@ interface UploadedFile {
   fileType: string;
 }
 
+type OcrQuality = 'low' | 'high';
+
+interface OcrQualityOption {
+  value: OcrQuality;
+  label: string;
+  description: string;
+  icon: string;
+}
+
+const OCR_QUALITY_OPTIONS: OcrQualityOption[] = [
+  {
+    value: 'high',
+    label: 'High Quality',
+    description: 'Best for scanned documents, photos of documents, or low-quality images. Applies image enhancement for better OCR accuracy.',
+    icon: '✨',
+  },
+  {
+    value: 'low',
+    label: 'Standard Quality',
+    description: 'Best for clear digital documents, high-resolution images, or when faster processing is preferred.',
+    icon: '⚡',
+  },
+];
+
 const PRICE_PER_PAGE = 35;
 
 export function AdminOrderForm() {
@@ -27,6 +52,7 @@ export function AdminOrderForm() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [sourceLanguage, setSourceLanguage] = useState<string>(AUTO_DETECT_LANGUAGE.code);
   const [targetLanguage, setTargetLanguage] = useState<string>('es');
+  const [ocrQuality, setOcrQuality] = useState<OcrQuality>('high');
   const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [showNewClientForm, setShowNewClientForm] = useState(false);
   const [newClientName, setNewClientName] = useState<string>('');
@@ -34,6 +60,7 @@ export function AdminOrderForm() {
   const [newClientPhone, setNewClientPhone] = useState<string>('');
   const [isCreatingClient, setIsCreatingClient] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [notice, setNotice] = useState<NoticeState | null>(null);
   const createOrder = useMutation(api.orders.createOrder);
   const createClientUser = useMutation(api.users.createClientUser);
   
@@ -48,12 +75,12 @@ export function AdminOrderForm() {
 
   const handleCreateNewClient = async () => {
     if (!user?.id) {
-      alert('Please sign in to create a client');
+      setNotice({ title: 'Sign in required', message: 'Please sign in to create a client.' });
       return;
     }
 
     if (!newClientEmail.trim()) {
-      alert('Please enter client email');
+      setNotice({ title: 'Missing email', message: 'Please enter client email.' });
       return;
     }
 
@@ -74,11 +101,14 @@ export function AdminOrderForm() {
       setNewClientName('');
       setNewClientEmail('');
       setNewClientPhone('');
-      
-      alert('Client created successfully!');
+
+      setNotice({ title: 'Client created', message: 'Client created successfully.' });
     } catch (error) {
       console.error('Failed to create client:', error);
-      alert(`Failed to create client: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice({
+        title: 'Create client failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setIsCreatingClient(false);
     }
@@ -86,27 +116,27 @@ export function AdminOrderForm() {
 
   const handleCreateOrder = async () => {
     if (!user?.id) {
-      alert('Please sign in to create an order');
+      setNotice({ title: 'Sign in required', message: 'Please sign in to create an order.' });
       return;
     }
 
     if (!selectedClientId) {
-      alert('Please select a client for this order');
+      setNotice({ title: 'Missing client', message: 'Please select a client for this order.' });
       return;
     }
 
     if (uploadedFiles.length === 0) {
-      alert('Please upload at least one file');
+      setNotice({ title: 'No files', message: 'Please upload at least one file.' });
       return;
     }
 
     if (!sourceLanguage || !targetLanguage) {
-      alert('Please select both source and target languages');
+      setNotice({ title: 'Missing languages', message: 'Please select both source and target languages.' });
       return;
     }
 
     if (sourceLanguage === targetLanguage) {
-      alert('Source and target languages must be different');
+      setNotice({ title: 'Invalid languages', message: 'Source and target languages must be different.' });
       return;
     }
 
@@ -130,6 +160,7 @@ export function AdminOrderForm() {
         amount: totalAmount,
         sourceLanguage,
         targetLanguage,
+        ocrQuality,
       });
 
       // Notify client payment is required (email stub for now)
@@ -146,7 +177,10 @@ export function AdminOrderForm() {
         }),
       });
 
-      alert('Order created successfully! Client has been notified that payment is required.');
+      setNotice({
+        title: 'Order created',
+        message: 'Order created successfully. Client has been notified that payment is required.',
+      });
       
       // Reset form
       setUploadedFiles([]);
@@ -158,7 +192,7 @@ export function AdminOrderForm() {
       router.push('/admin');
     } catch (error) {
       console.error('Failed to create order:', error);
-      alert('Failed to create order. Please try again.');
+      setNotice({ title: 'Create order failed', message: 'Failed to create order. Please try again.' });
     } finally {
       setIsCreating(false);
     }
@@ -166,6 +200,7 @@ export function AdminOrderForm() {
 
   return (
     <div className="bg-white rounded-lg shadow p-6 space-y-6">
+      <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
       {/* Client Selection Section */}
       <div>
         <h2 className="text-xl font-semibold text-gray-900 mb-4">
@@ -367,6 +402,58 @@ export function AdminOrderForm() {
         />
       </div>
 
+      {/* Document Quality Section */}
+      {uploadedFiles.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            Document Quality
+          </h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Select the quality of the uploaded documents. This helps optimize text extraction for scanned or photographed documents.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {OCR_QUALITY_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setOcrQuality(option.value)}
+                className={`p-4 rounded-lg border-2 text-left transition-all ${
+                  ocrQuality === option.value
+                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-2xl">{option.icon}</span>
+                  <span className={`font-semibold ${
+                    ocrQuality === option.value ? 'text-blue-900' : 'text-gray-900'
+                  }`}>
+                    {option.label}
+                  </span>
+                  {ocrQuality === option.value && (
+                    <span className="ml-auto">
+                      <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    </span>
+                  )}
+                </div>
+                <p className={`text-sm ${
+                  ocrQuality === option.value ? 'text-blue-700' : 'text-gray-600'
+                }`}>
+                  {option.description}
+                </p>
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-sm text-amber-800">
+              <strong>💡 Tip:</strong> If documents are scanned, photographed, or have poor image quality, select &quot;High Quality&quot; for better text recognition accuracy.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Order Summary */}
       {uploadedFiles.length > 0 && (
         <div className="border-t pt-6">
@@ -387,6 +474,12 @@ export function AdminOrderForm() {
             <div className="flex justify-between">
               <span className="text-gray-600">Total pages:</span>
               <span className="font-medium">{totalPages} page{totalPages !== 1 ? 's' : ''}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Document quality:</span>
+              <span className="font-medium">
+                {ocrQuality === 'high' ? '✨ High Quality' : '⚡ Standard Quality'}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600">Price per page:</span>

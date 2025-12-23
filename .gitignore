@@ -43,3 +43,9 @@ next-env.d.ts
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+# Google Cloud credentials (sensitive - never commit)
+translation-app-*.json
+*-credentials.json
+*-service-account.json
+*.key.json

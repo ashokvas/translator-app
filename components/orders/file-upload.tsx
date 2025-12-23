@@ -5,6 +5,7 @@ import { useDropzone } from 'react-dropzone';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
+import { NoticeDialog, type NoticeState } from '@/components/ui/notice-dialog';
 
 interface UploadedFile {
   fileName: string;
@@ -17,7 +18,7 @@ interface UploadedFile {
 }
 
 interface FileUploadProps {
-  onFilesUploaded: (files: UploadedFile[]) => void;
+  onFilesUploaded: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
   uploadedFiles: UploadedFile[];
 }
 
@@ -91,6 +92,7 @@ async function uploadWithProgress(
 export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [preview, setPreview] = useState<UploadItem | null>(null);
+  const [notice, setNotice] = useState<NoticeState | null>(null);
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -139,7 +141,7 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
                 )
               );
 
-              onFilesUploaded([...uploadedFiles, normalized]);
+              onFilesUploaded((prev) => [...prev, normalized]);
 
               // Remove from queue after a short delay so user can see "done" state
               setTimeout(() => {
@@ -164,7 +166,10 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
         );
       } catch (error) {
         console.error('Upload error:', error);
-        alert(`Upload failed: ${error instanceof Error ? error.message : String(error)}`);
+        setNotice({
+          title: 'Upload failed',
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
     },
     [onFilesUploaded, uploadedFiles]
@@ -184,12 +189,12 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
   });
 
   const removeFile = (index: number) => {
-    const newFiles = uploadedFiles.filter((_, i) => i !== index);
-    onFilesUploaded(newFiles);
+    onFilesUploaded((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (
     <div className="space-y-4">
+      <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
       <Card
         {...getRootProps()}
         className={`cursor-pointer border-dashed transition-colors ${

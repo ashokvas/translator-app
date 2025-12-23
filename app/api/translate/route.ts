@@ -3,13 +3,35 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '@/convex/_generated/api';
 import { Buffer } from 'buffer';
+import { generateText } from 'ai';
+import { createOpenAI, openai } from '@ai-sdk/openai';
+import { anthropic } from '@ai-sdk/anthropic';
+import mammoth from 'mammoth';
+import ExcelJS from 'exceljs';
+import {
+  getDefaultDocumentDomain,
+  getDefaultTranslationProvider,
+  getDomainSystemPrompt,
+  OPENROUTER_DEFAULT_MODEL,
+  isDocumentDomain,
+  isTranslationProvider,
+  type DocumentDomain,
+  type TranslationProvider,
+} from '@/lib/translation-providers';
+import { getLanguageName } from '@/lib/languages';
+import { translateTextV3, performOCR } from '@/lib/google-cloud';
+import {
+  DEFAULT_PREPROCESSING_OPTIONS,
+  AGGRESSIVE_PREPROCESSING_OPTIONS,
+  LIGHT_PREPROCESSING_OPTIONS,
+} from '@/lib/image-preprocessing';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for translation
 
 /**
  * POST /api/translate
- * Translates a file using Google Cloud Translation API
+ * Translates a file using a selectable provider (Google Translate, OpenAI, Anthropic)
  * 
  * Body: {
  *   orderId: string,
@@ -18,7 +40,9 @@ export const maxDuration = 300; // 5 minutes for translation
  *   fileUrl: string,
  *   fileType: string,
  *   sourceLanguage: string,
- *   targetLanguage: string
+ *   targetLanguage: string,
+ *   translationProvider?: 'google' | 'openai' | 'anthropic',
+ *   documentDomain?: 'general' | 'legal' | 'medical' | 'technical'
  * }
  */
 export async function POST(request: NextRequest) {
@@ -56,6 +80,10 @@ export async function POST(request: NextRequest) {
       fileType,
       sourceLanguage,
       targetLanguage,
+      translationProvider,
+      documentDomain,
+      openRouterModel,
+      ocrQuality,
     } = body;
 
     if (!orderId || !fileName || !sourceLanguage || !targetLanguage) {
@@ -64,6 +92,17 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const provider: TranslationProvider = isTranslationProvider(translationProvider)
+      ? translationProvider
+      : getDefaultTranslationProvider();
+
+    const domain: DocumentDomain = isDocumentDomain(documentDomain)
+      ? documentDomain
+      : getDefaultDocumentDomain();
+
+    const ocrQualityNormalized: 'low' | 'high' =
+      ocrQuality === 'low' || ocrQuality === 'high' ? ocrQuality : 'high';
 
     // If fileUrl or fileType not provided, fetch from Convex
     if (!fileUrl || !fileType) {
@@ -86,25 +125,18 @@ export async function POST(request: NextRequest) {
       targetLanguage = targetLanguage || order.targetLanguage;
     }
 
-    // Check if Google Cloud credentials are configured
+    // Google API key is only required for Google Translate provider and for OCR (Google Vision).
     const googleApiKey = process.env.GOOGLE_CLOUD_API_KEY;
-    const googleProjectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
-
-    if (!googleApiKey || !googleProjectId) {
-      return NextResponse.json(
-        {
-          error: 'Google Cloud Translation API not configured',
-          details: 'Please set GOOGLE_CLOUD_API_KEY and GOOGLE_CLOUD_PROJECT_ID in .env.local',
-        },
-        { status: 500 }
-      );
-    }
 
     // Initialize translation progress
     const translationId = await convexClient.mutation(api.translations.upsertTranslation, {
       orderId: orderId as any,
       fileName,
       fileIndex,
+      translationProvider: provider,
+      documentDomain: domain,
+      openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
+      ocrQuality: ocrQualityNormalized,
       segments: [],
       status: 'translating',
       progress: 0,
@@ -125,10 +157,22 @@ export async function POST(request: NextRequest) {
 
       if (fileType.startsWith('image/')) {
         // Handle images: OCR + Translate
-        segments = await translateImage(fileUrl, sourceLanguage, targetLanguage, googleApiKey);
+        segments = await translateImage(fileUrl, sourceLanguage, targetLanguage, {
+          provider,
+          domain,
+          googleApiKey,
+          openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
+          ocrQuality: ocrQualityNormalized,
+        });
       } else if (fileType === 'application/pdf') {
         // Handle PDF: Extract text + Translate
-        segments = await translatePDF(fileUrl, sourceLanguage, targetLanguage, googleApiKey);
+        segments = await translatePDF(fileUrl, sourceLanguage, targetLanguage, {
+          provider,
+          domain,
+          googleApiKey,
+          openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
+          ocrQuality: ocrQualityNormalized,
+        });
       } else if (
         fileType.includes('wordprocessingml') ||
         fileType.includes('spreadsheetml')
@@ -139,7 +183,13 @@ export async function POST(request: NextRequest) {
           fileType,
           sourceLanguage,
           targetLanguage,
-          googleApiKey
+          {
+            provider,
+            domain,
+            googleApiKey,
+            openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
+            ocrQuality: ocrQualityNormalized,
+          }
         );
       } else {
         return NextResponse.json(
@@ -153,6 +203,10 @@ export async function POST(request: NextRequest) {
         orderId: orderId as any,
         fileName,
         fileIndex,
+        translationProvider: provider,
+        documentDomain: domain,
+        openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
+        ocrQuality: ocrQualityNormalized,
         segments: segments.map((seg, idx) => ({
           ...seg,
           id: seg.id || `seg-${Date.now()}-${idx}`,
@@ -170,6 +224,10 @@ export async function POST(request: NextRequest) {
         success: true,
         segmentsCount: segments.length,
         message: 'Translation completed successfully',
+        translationProvider: provider,
+        documentDomain: domain,
+        openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
+        ocrQuality: ocrQualityNormalized,
       });
     } catch (error) {
       // Update status to error
@@ -181,10 +239,23 @@ export async function POST(request: NextRequest) {
       });
 
       console.error('Translation error:', error);
+
+      // Provide clearer error messages for common issues
+      let errorMessage = error instanceof Error ? error.message : String(error);
+      let userFriendlyError = 'Translation failed';
+
+      if (errorMessage.includes('aborted') || errorMessage.includes('AbortError')) {
+        userFriendlyError = 'Translation timed out';
+        errorMessage = 'The translation request took too long. This can happen with complex images or when OpenRouter is under heavy load. Please try again, or try using Claude Sonnet 4.5 instead of GPT-5.2.';
+      } else if (errorMessage.includes('Temporarily unavailable') || errorMessage.includes('503') || errorMessage.includes('502')) {
+        userFriendlyError = 'Service temporarily unavailable';
+        errorMessage = 'OpenRouter is temporarily unavailable. Please wait a moment and try again.';
+      }
+
       return NextResponse.json(
         {
-          error: 'Translation failed',
-          details: error instanceof Error ? error.message : String(error),
+          error: userFriendlyError,
+          details: errorMessage,
         },
         { status: 500 }
       );
@@ -208,50 +279,62 @@ async function translateImage(
   imageUrl: string,
   sourceLanguage: string,
   targetLanguage: string,
-  apiKey: string
+  options: TranslationOptions
 ): Promise<Array<{ id: string; originalText: string; translatedText: string; isEdited: boolean; order: number }>> {
   // Fetch image
   const imageResponse = await fetch(imageUrl);
+  const headerMediaType = imageResponse.headers.get('content-type') || '';
   const imageBuffer = await imageResponse.arrayBuffer();
-  const base64Image = Buffer.from(imageBuffer).toString('base64');
+  const imageBuf = Buffer.from(imageBuffer);
 
-  // Step 1: OCR using Google Cloud Vision API
-  const visionResponse = await fetch(
-    `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requests: [
+  // Prefer vision-based translation for OpenRouter so the model can see layout directly (like ChatGPT upload).
+  if (options.provider === 'openrouter') {
+    try {
+      const visionPair = await translateImageViaVisionModel({
+        image: imageBuf,
+        mediaType: headerMediaType.startsWith('image/') ? headerMediaType : 'image/jpeg',
+        sourceLanguage,
+        targetLanguage,
+        domain: options.domain,
+        openRouterModel: options.openRouterModel,
+        imageDetail: options.ocrQuality === 'low' ? 'low' : 'high',
+      });
+
+      if (visionPair.originalText.trim() || visionPair.translatedText.trim()) {
+        return [
           {
-            image: { content: base64Image },
-            features: [{ type: 'TEXT_DETECTION' }],
+            id: `img-vision-${Date.now()}`,
+            originalText: visionPair.originalText.trim() || '[No text detected]',
+            translatedText: visionPair.translatedText.trim() || '',
+            isEdited: false,
+            order: 0,
           },
-        ],
-      }),
+        ];
+      }
+    } catch (err) {
+      console.warn('[translateImage] OpenRouter vision translation failed, falling back to OCR:', err);
+      // fall through to OCR pipeline below
     }
-  );
-
-  if (!visionResponse.ok) {
-    const error = await visionResponse.text();
-    throw new Error(`Vision API error: ${error}`);
   }
 
-  const visionData = await visionResponse.json();
-  const textAnnotations = visionData.responses[0]?.textAnnotations || [];
-  const fullText = textAnnotations[0]?.description || '';
-
-  if (!fullText.trim()) {
-    return [];
+  // Fallback: OCR with Google Vision + translate extracted text
+  const apiKey = options.googleApiKey;
+  if (!apiKey) {
+    throw new Error('Google Cloud Vision API not configured. Please set GOOGLE_CLOUD_API_KEY.');
   }
 
-  // Step 2: Translate using Google Cloud Translation API
-  const translatedText = await translateText(fullText, sourceLanguage, targetLanguage, apiKey);
+  const base64Image = imageBuf.toString('base64');
+  const ocrFeatureType = options.ocrQuality === 'low' ? 'TEXT_DETECTION' : 'DOCUMENT_TEXT_DETECTION';
+
+  const ocrText = await ocrImageBase64(base64Image, apiKey, ocrFeatureType, options.ocrQuality);
+  if (!ocrText.trim()) return [];
+
+  const translatedText = await translateText(ocrText, sourceLanguage, targetLanguage, options);
 
   return [
     {
       id: `img-${Date.now()}`,
-      originalText: fullText,
+      originalText: ocrText,
       translatedText,
       isEdited: false,
       order: 0,
@@ -259,32 +342,81 @@ async function translateImage(
   ];
 }
 
-async function ocrImageBase64(base64Image: string, apiKey: string): Promise<string> {
-  const visionResponse = await fetch(
-    `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requests: [
-          {
-            image: { content: base64Image },
-            features: [{ type: 'TEXT_DETECTION' }],
-          },
-        ],
-      }),
+interface TranslationOptions {
+  provider: TranslationProvider;
+  domain: DocumentDomain;
+  googleApiKey?: string;
+  openRouterModel?: string;
+  ocrQuality?: 'low' | 'high';
+}
+
+function chunkTextForTranslation(text: string, maxChunkChars = 4000): string[] {
+  const normalized = String(text || '').replace(/\r\n/g, '\n');
+  if (normalized.length <= maxChunkChars) return [normalized];
+
+  // Prefer splitting on blank lines/paragraphs, then on single newlines, then hard split.
+  const parts = normalized
+    .split(/\n{2,}/g)
+    .flatMap((p) => (p.includes('\n') ? p.split('\n') : [p]))
+    .map((p) => p.trimEnd());
+
+  const chunks: string[] = [];
+  let current = '';
+  for (const part of parts) {
+    const candidate = current ? `${current}\n${part}` : part;
+    if (candidate.length <= maxChunkChars) {
+      current = candidate;
+      continue;
     }
-  );
-
-  if (!visionResponse.ok) {
-    const error = await visionResponse.text();
-    throw new Error(`Vision API error: ${error}`);
+    if (current) chunks.push(current);
+    if (part.length <= maxChunkChars) {
+      current = part;
+    } else {
+      for (let i = 0; i < part.length; i += maxChunkChars) {
+        chunks.push(part.slice(i, i + maxChunkChars));
+      }
+      current = '';
+    }
   }
+  if (current) chunks.push(current);
+  return chunks.filter((c) => c.trim().length > 0);
+}
 
-  const visionData = await visionResponse.json();
-  const textAnnotations = visionData.responses?.[0]?.textAnnotations || [];
-  const fullText = textAnnotations?.[0]?.description || '';
-  return String(fullText || '').trim();
+/**
+ * OCR using Google Cloud Vision API (SDK)
+ * Uses the official @google-cloud/vision SDK for better accuracy and features
+ * Includes image preprocessing to improve OCR accuracy for poor quality images
+ */
+async function ocrImageBase64(
+  base64Image: string,
+  _apiKey: string, // Kept for API compatibility, SDK handles auth
+  featureType: 'TEXT_DETECTION' | 'DOCUMENT_TEXT_DETECTION',
+  ocrQuality: 'low' | 'high' = 'high'
+): Promise<string> {
+  try {
+    // Select preprocessing options based on quality setting
+    // 'high' quality = aggressive preprocessing for better OCR on poor images
+    // 'low' quality = light preprocessing for faster processing
+    const preprocessingOptions =
+      ocrQuality === 'high'
+        ? DEFAULT_PREPROCESSING_OPTIONS
+        : LIGHT_PREPROCESSING_OPTIONS;
+
+    const result = await performOCR(
+      Buffer.from(base64Image, 'base64'),
+      featureType,
+      preprocessingOptions
+    );
+
+    if (result.wasPreprocessed) {
+      console.log('[OCR] Image was preprocessed for better accuracy');
+    }
+
+    return result.text;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Vision API error: ${message}`);
+  }
 }
 
 /**
@@ -294,7 +426,7 @@ async function translatePDF(
   pdfUrl: string,
   sourceLanguage: string,
   targetLanguage: string,
-  apiKey: string
+  options: TranslationOptions
 ): Promise<Array<{ id: string; originalText: string; translatedText: string; isEdited: boolean; pageNumber?: number; order: number }>> {
   // Fetch PDF
   const pdfResponse = await fetch(pdfUrl);
@@ -330,35 +462,6 @@ async function translatePDF(
     return text.replace(/--\s*\d+\s*of\s*\d+\s*--/gi, "").trim();
   }
 
-  function chunkTextForTranslate(text: string, maxChunkChars = 4500): string[] {
-    const normalized = text.replace(/\r\n/g, "\n").trim();
-    if (normalized.length <= maxChunkChars) return [normalized];
-
-    // Prefer splitting on blank lines/paragraphs, then on single newlines, then hard split.
-    const parts = normalized.split(/\n{2,}/g).flatMap((p) => (p.includes("\n") ? p.split("\n") : [p]));
-    const chunks: string[] = [];
-    let current = "";
-    for (const part of parts) {
-      const candidate = current ? `${current}\n${part}` : part;
-      if (candidate.length <= maxChunkChars) {
-        current = candidate;
-        continue;
-      }
-      if (current) chunks.push(current);
-      if (part.length <= maxChunkChars) {
-        current = part;
-      } else {
-        // Hard split long parts
-        for (let i = 0; i < part.length; i += maxChunkChars) {
-          chunks.push(part.slice(i, i + maxChunkChars));
-        }
-        current = "";
-      }
-    }
-    if (current) chunks.push(current);
-    return chunks.filter((c) => c.trim().length > 0);
-  }
-
   // Extract text from each page
   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
     try {
@@ -371,12 +474,12 @@ async function translatePDF(
       if (pageText.length < 5) continue;
 
       // Translate in chunks to avoid v2 API size limits (~5k chars).
-      const chunks = chunkTextForTranslate(pageText);
+      const chunks = chunkTextForTranslation(pageText, 4000);
       const translatedChunks: string[] = [];
       for (const chunk of chunks) {
         // translateText already handles auto-detect source language.
         // eslint-disable-next-line no-await-in-loop
-        const translatedChunk = await translateText(chunk, sourceLanguage, targetLanguage, apiKey);
+        const translatedChunk = await translateText(chunk, sourceLanguage, targetLanguage, options);
         translatedChunks.push(translatedChunk);
       }
       const translatedText = translatedChunks.join("\n");
@@ -405,7 +508,13 @@ async function translatePDF(
   if (segments.length === 0) {
     // Scanned/image-only PDF: render pages -> Vision OCR -> translate
     try {
-      const ocrSegments = await translateScannedPdfWithOcr(pdfBuffer, totalPages, sourceLanguage, targetLanguage, apiKey);
+      const ocrSegments = await translateScannedPdfWithOcr(
+        pdfBuffer,
+        totalPages,
+        sourceLanguage,
+        targetLanguage,
+        options
+      );
       if (ocrSegments.length > 0) return ocrSegments;
     } catch (err) {
       console.warn('[translatePDF] OCR pipeline failed:', err);
@@ -445,8 +554,10 @@ async function translateScannedPdfWithOcr(
   totalPages: number,
   sourceLanguage: string,
   targetLanguage: string,
-  apiKey: string
+  options: TranslationOptions
 ): Promise<Array<{ id: string; originalText: string; translatedText: string; isEdited: boolean; pageNumber?: number; order: number }>> {
+  const apiKey = options.googleApiKey;
+
   // Render PDF pages to PNG using pdfjs-dist and @napi-rs/canvas
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -479,13 +590,17 @@ async function translateScannedPdfWithOcr(
     order: number;
   }> = [];
 
+  const scale = options.ocrQuality === 'high' ? 3 : 2;
+  const ocrFeatureType: 'TEXT_DETECTION' | 'DOCUMENT_TEXT_DETECTION' =
+    options.ocrQuality === 'low' ? 'TEXT_DETECTION' : 'DOCUMENT_TEXT_DETECTION';
+
   const maxPages = Math.min(totalPages, 50); // safety limit
   for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
     const page: any = await pdfDoc.getPage(pageNum);
     // Render at a moderate scale for OCR
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    const viewport: any = page.getViewport({ scale: 2 });
+    const viewport: any = page.getViewport({ scale });
     const width = Math.ceil(Number(viewport.width));
     const height = Math.ceil(Number(viewport.height));
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
@@ -499,16 +614,47 @@ async function translateScannedPdfWithOcr(
 
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
     const pngBuf: Buffer = canvas.toBuffer('image/png');
+
+    // Prefer vision-based translation for OpenRouter (no OCR dependency, better layout)
+    if (options.provider === 'openrouter') {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const visionPair = await translateImageViaVisionModel({
+          image: pngBuf,
+          mediaType: 'image/png',
+          sourceLanguage,
+          targetLanguage,
+          domain: options.domain,
+          openRouterModel: options.openRouterModel,
+          imageDetail: options.ocrQuality === 'low' ? 'low' : 'high',
+        });
+
+        if ((visionPair.originalText || '').trim().length > 0 || (visionPair.translatedText || '').trim().length > 0) {
+          segments.push({
+            id: `pdf-vision-page-${pageNum}-${Date.now()}`,
+            originalText: (visionPair.originalText || '').trim() || '[No text detected]',
+            translatedText: (visionPair.translatedText || '').trim(),
+            isEdited: false,
+            pageNumber: pageNum,
+            order: pageNum - 1,
+          });
+          continue;
+        }
+      } catch (err) {
+        console.warn(`[translateScannedPdfWithOcr] OpenRouter vision failed for page ${pageNum}; falling back to OCR`, err);
+      }
+    }
+
+    // Fallback: OCR with Google Vision + translate extracted text
+    if (!apiKey) {
+      throw new Error('Google Cloud Vision API not configured. Please set GOOGLE_CLOUD_API_KEY.');
+    }
     const base64 = pngBuf.toString('base64');
-
-    // OCR text
     // eslint-disable-next-line no-await-in-loop
-    const ocrText = await ocrImageBase64(base64, apiKey);
+    const ocrText = await ocrImageBase64(base64, apiKey, ocrFeatureType, options.ocrQuality);
     if (!ocrText || ocrText.length < 5) continue;
-
-    // Translate OCR text (chunk to avoid limits)
     // eslint-disable-next-line no-await-in-loop
-    const translatedText = await translateText(ocrText, sourceLanguage, targetLanguage, apiKey);
+    const translatedText = await translateText(ocrText, sourceLanguage, targetLanguage, options);
 
     segments.push({
       id: `pdf-ocr-page-${pageNum}-${Date.now()}`,
@@ -530,6 +676,223 @@ async function translateScannedPdfWithOcr(
   return segments;
 }
 
+async function translateImageViaVisionModel(args: {
+  image: Buffer;
+  mediaType: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  domain: DocumentDomain;
+  openRouterModel?: string;
+  imageDetail?: 'auto' | 'high' | 'low';
+}): Promise<{ originalText: string; translatedText: string }> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error('OpenRouter is not configured. Please set OPENROUTER_API_KEY.');
+  }
+
+  const system = getDomainSystemPrompt(args.domain);
+  const source = getLanguageLabelForPrompt(args.sourceLanguage);
+  const target = getLanguageLabelForPrompt(args.targetLanguage);
+  const model = args.openRouterModel || process.env.OPENROUTER_TRANSLATION_MODEL || OPENROUTER_DEFAULT_MODEL;
+
+  const openrouter = createOpenAI({
+    apiKey,
+    baseURL: 'https://openrouter.ai/api/v1',
+    headers: {
+      'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER || 'http://localhost',
+      'X-Title': process.env.OPENROUTER_APP_NAME || 'Translator-app',
+    },
+  });
+
+  // Vision models with detailed prompts can take 2-4 minutes; default to 5 min timeout
+  const timeoutMs = Number(process.env.OPENROUTER_TIMEOUT_MS || 300000);
+  const abortController = new AbortController();
+  const abortTimer = setTimeout(() => abortController.abort(), timeoutMs);
+
+  // Comprehensive prompt for document extraction and translation - handles all document types
+  const prompt = [
+    `You are translating a document from ${source} to ${target}.`,
+    '',
+    '## YOUR TASK:',
+    '1. Extract ALL text from the image exactly as it appears',
+    '2. Translate to the target language with PERFECT formatting',
+    '3. Preserve the document\'s natural structure',
+    '',
+    '## CRITICAL: ADAPT TO DOCUMENT TYPE',
+    '',
+    '### For FORMS/CERTIFICATES (short-form with labeled fields):',
+    '- Each field on its own line: "Label: Value"',
+    '- Blank lines between sections',
+    '- Example:',
+    '  Name: John Smith',
+    '  Date of Birth: May 17, 1981',
+    '  ',
+    '  Issue Date: January 15, 2023',
+    '',
+    '### For CONTRACTS/LEGAL DOCUMENTS (long-form with clauses):',
+    '- Preserve article/section numbering exactly',
+    '- Keep paragraph indentation and hierarchy',
+    '- Maintain clause structure (1.1, 1.2, etc.)',
+    '- Example:',
+    '  ARTICLE 1: DEFINITIONS',
+    '  ',
+    '  1.1 "Agreement" means this contract...',
+    '  ',
+    '  1.2 "Party" means...',
+    '',
+    '### For TRANSCRIPTS/TABLES:',
+    '- Maintain column alignment',
+    '- Keep course names, grades, credits in rows',
+    '- Preserve semester/year groupings',
+    '',
+    '### For LETTERS/NARRATIVE TEXT:',
+    '- Preserve paragraph structure',
+    '- Keep greeting, body, closing format',
+    '- Maintain natural text flow',
+    '',
+    '## FORMATTING RULES (ALL DOCUMENTS):',
+    '',
+    '1. STRUCTURE: Mirror the source document\'s layout',
+    '2. SPACING: Add blank lines between major sections',
+    '3. LINE BREAKS: Preserve line breaks from the original',
+    '4. DATES: Format as "Month Day, Year" (May 17, 1981)',
+    '5. NUMBERS: Keep reference numbers, IDs exactly as shown',
+    '',
+    '## DO NOT:',
+    '- Combine unrelated information with semicolons (;)',
+    '- Merge multiple distinct items into one line',
+    '- Remove line breaks that exist in the source',
+    '- Add commentary or explanations',
+    '',
+    '## OUTPUT FORMAT:',
+    'Return ONLY a JSON object:',
+    '{"originalText": "extracted text preserving structure", "translatedText": "formatted translation"}',
+    '',
+    'No markdown. No explanations. Just the JSON.',
+  ].join('\n');
+
+  const result = await generateText({
+    // IMPORTANT: OpenRouter is OpenAI-Chat-Completions compatible, not OpenAI Responses API.
+    // The AI SDK default model uses /responses, which OpenRouter rejects.
+    model: openrouter.chat(model),
+    maxRetries: 0,
+    // Some reasoning/vision models ignore temperature; AI SDK will warn but still work.
+    temperature: 0,
+    system,
+    abortSignal: abortController.signal,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          {
+            type: 'file',
+            mediaType: args.mediaType,
+            data: args.image,
+            providerOptions: {
+              openai: {
+                imageDetail: args.imageDetail ?? 'high',
+              },
+            },
+          },
+        ],
+      } as any,
+    ],
+  });
+
+  clearTimeout(abortTimer);
+
+  const raw = String(result.text || '').trim();
+  try {
+    const obj = JSON.parse(raw) as { originalText?: string; translatedText?: string };
+    const originalText = String(obj.originalText || '');
+    const translatedText = String(obj.translatedText || '');
+
+    // Optional refinement pass: improves fidelity/formatting without re-reading the image.
+    // This mimics how chat apps often do "draft -> revise" internally.
+    if (originalText.trim() && translatedText.trim()) {
+      try {
+        const refineAbortController = new AbortController();
+        const refineAbortTimer = setTimeout(() => refineAbortController.abort(), timeoutMs);
+
+        const refine = await generateText({
+          model: openrouter.chat(model),
+          maxRetries: 0,
+          temperature: 0,
+          system,
+          abortSignal: refineAbortController.signal,
+          prompt: [
+            `Improve this ${source} to ${target} document translation. Focus on FORMATTING and STRUCTURE.`,
+            '',
+            '## YOUR TASK:',
+            'Review the draft translation and improve formatting while preserving the document\'s natural structure.',
+            '',
+            '## RULES BY DOCUMENT TYPE:',
+            '',
+            '### For FORMS/CERTIFICATES:',
+            '- Split combined fields into separate lines',
+            '- Use "Label: Value" format',
+            '- If you see "X; Y" (different fields), split into:',
+            '  X',
+            '  Y',
+            '',
+            '### For CONTRACTS/LEGAL:',
+            '- Preserve clause numbering (1.1, 1.2, Article 1, etc.)',
+            '- Keep paragraph indentation',
+            '- Maintain hierarchical structure',
+            '',
+            '### For TRANSCRIPTS/LISTS:',
+            '- Keep tabular alignment',
+            '- Preserve item ordering',
+            '- Maintain groupings (by semester, category, etc.)',
+            '',
+            '### For NARRATIVE TEXT:',
+            '- Keep paragraph breaks',
+            '- Maintain natural text flow',
+            '- Don\'t artificially split sentences',
+            '',
+            '## GENERAL FORMATTING:',
+            '',
+            '1. ADD SPACING: Blank lines between major sections',
+            '2. DATE FORMAT: "Month Day, Year"',
+            '3. PRESERVE: All information from draft - just improve structure',
+            '4. DO NOT: Add commentary, combine unrelated items',
+            '',
+            '## Important:',
+            '- Identify the document type from context',
+            '- Apply appropriate formatting for that type',
+            '- The output should read naturally and professionally',
+            '',
+            'Output JSON only: {"originalText": "...", "translatedText": "..."}',
+            '',
+            '--- ORIGINAL TEXT ---',
+            originalText,
+            '',
+            '--- DRAFT TRANSLATION (improve formatting) ---',
+            translatedText,
+          ].join('\n'),
+        });
+
+        clearTimeout(refineAbortTimer);
+
+        const refineRaw = String(refine.text || '').trim();
+        const refineObj = JSON.parse(refineRaw) as { originalText?: string; translatedText?: string };
+        return {
+          originalText: String(refineObj.originalText || originalText),
+          translatedText: String(refineObj.translatedText || translatedText),
+        };
+      } catch {
+        // ignore refinement failures; return draft
+      }
+    }
+
+    return { originalText, translatedText };
+  } catch {
+    // If the model fails to produce JSON, return raw as translated text for visibility.
+    return { originalText: '', translatedText: raw };
+  }
+}
+
 /**
  * Translate Office documents (DOCX/XLSX)
  */
@@ -538,32 +901,118 @@ async function translateOfficeDocument(
   fileType: string,
   sourceLanguage: string,
   targetLanguage: string,
-  apiKey: string
+  options: TranslationOptions
 ): Promise<Array<{ id: string; originalText: string; translatedText: string; isEdited: boolean; order: number }>> {
-  // For now, return a placeholder
-  // In production, you'd use libraries like mammoth (DOCX) or exceljs (XLSX)
-  // to extract text, then translate
-  
   // Fetch file
   const fileResponse = await fetch(fileUrl);
   const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
 
-  // TODO: Implement proper text extraction for DOCX/XLSX
-  // For now, return a simple placeholder
-  const placeholderText = `[Document content extraction not yet implemented for ${fileType}]`;
-  
-  const translatedText = await translateText(
-    placeholderText,
-    sourceLanguage,
-    targetLanguage,
-    apiKey
-  );
+  const isDocx =
+    fileType.includes('wordprocessingml') || fileUrl.toLowerCase().endsWith('.docx');
+  const isXlsx =
+    fileType.includes('spreadsheetml') || fileUrl.toLowerCase().endsWith('.xlsx');
 
+  if (isDocx) {
+    const { value } = await mammoth.extractRawText({ buffer: fileBuffer });
+    const raw = String(value || '').trim();
+    if (!raw) return [];
+
+    // Split into paragraphs (keep line breaks; we'll keep them in bilingual export).
+    const paragraphs = raw
+      .replace(/\r\n/g, '\n')
+      .split(/\n{2,}/g)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    const segments: Array<{ id: string; originalText: string; translatedText: string; isEdited: boolean; order: number }> =
+      [];
+
+    let order = 0;
+    for (const p of paragraphs) {
+      const chunks = chunkTextForTranslation(p, 3500);
+      if (chunks.length === 1) {
+        // eslint-disable-next-line no-await-in-loop
+        const translated = await translateText(p, sourceLanguage, targetLanguage, options);
+        segments.push({
+          id: `docx-${Date.now()}-${order}`,
+          originalText: p,
+          translatedText: translated,
+          isEdited: false,
+          order,
+        });
+        order += 1;
+        continue;
+      }
+
+      const translatedChunks: string[] = [];
+      for (const chunk of chunks) {
+        // eslint-disable-next-line no-await-in-loop
+        translatedChunks.push(await translateText(chunk, sourceLanguage, targetLanguage, options));
+      }
+      segments.push({
+        id: `docx-${Date.now()}-${order}`,
+        originalText: p,
+        translatedText: translatedChunks.join('\n'),
+        isEdited: false,
+        order,
+      });
+      order += 1;
+    }
+
+    return segments;
+  }
+
+  if (isXlsx) {
+    const workbook = new ExcelJS.Workbook();
+    // ExcelJS types expect Node Buffer; Next/TS may type Buffer as Buffer<ArrayBuffer>.
+    await workbook.xlsx.load(fileBuffer as any);
+
+    const segments: Array<{ id: string; originalText: string; translatedText: string; isEdited: boolean; order: number }> =
+      [];
+    let order = 0;
+
+    workbook.worksheets.forEach((sheet) => {
+      sheet.eachRow((row, rowNumber) => {
+        row.eachCell((cell, colNumber) => {
+          const cellValue =
+            typeof cell.value === 'string'
+              ? cell.value
+              : typeof cell.text === 'string'
+              ? cell.text
+              : '';
+          const text = String(cellValue || '').trim();
+          if (!text) return;
+
+          // Store location for review/export
+          const originalText = `${sheet.name}!R${rowNumber}C${colNumber}\n${text}`;
+          segments.push({
+            id: `xlsx-${Date.now()}-${order}`,
+            originalText,
+            translatedText: '', // fill later
+            isEdited: false,
+            order,
+          });
+          order += 1;
+        });
+      });
+    });
+
+    // Translate sequentially to respect rate limits (can be optimized later with concurrency controls).
+    for (const seg of segments) {
+      // eslint-disable-next-line no-await-in-loop
+      seg.translatedText = await translateText(seg.originalText, sourceLanguage, targetLanguage, options);
+    }
+
+    return segments;
+  }
+
+  // Fallback: unknown Office type
+  const placeholderText = `[Unsupported office type for extraction: ${fileType}]`;
   return [
     {
-      id: `office-${Date.now()}`,
+      id: `office-unsupported-${Date.now()}`,
       originalText: placeholderText,
-      translatedText,
+      translatedText: placeholderText,
       isEdited: false,
       order: 0,
     },
@@ -571,37 +1020,316 @@ async function translateOfficeDocument(
 }
 
 /**
- * Translate text using Google Cloud Translation API
+ * Translate text using the selected provider
  */
 async function translateText(
   text: string,
   sourceLanguage: string,
   targetLanguage: string,
-  apiKey: string
+  options: TranslationOptions
 ): Promise<string> {
-  // Handle auto-detect
-  const sourceLang = sourceLanguage === 'auto' ? '' : sourceLanguage;
+  const provider = options.provider;
 
-  const response = await fetch(
-    `https://translation.googleapis.com/language/translate/v2?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        q: text,
-        source: sourceLang || undefined,
-        target: targetLanguage,
-        format: 'text',
-      }),
+  if (provider === 'google') {
+    const apiKey = options.googleApiKey;
+    if (!apiKey) {
+      throw new Error('Google Translate not configured. Please set GOOGLE_CLOUD_API_KEY.');
     }
-  );
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Translation API error: ${error}`);
+    return translateTextGoogle(text, sourceLanguage, targetLanguage, apiKey);
   }
 
-  const data = await response.json();
-  return data.data?.translations?.[0]?.translatedText || text;
+  if (provider === 'openai') {
+    return translateTextOpenAI(text, sourceLanguage, targetLanguage, options.domain);
+  }
+
+  if (provider === 'anthropic') {
+    return translateTextAnthropic(text, sourceLanguage, targetLanguage, options.domain);
+  }
+
+  if (provider === 'openrouter') {
+    return translateTextOpenRouter(
+      text,
+      sourceLanguage,
+      targetLanguage,
+      options.domain,
+      options.openRouterModel
+    );
+  }
+
+  return text;
+}
+
+/**
+ * Translate text using Google Cloud Translation v3 (SDK)
+ * Uses the official @google-cloud/translate SDK for better accuracy and features
+ *
+ * Translation v3 benefits:
+ * - Neural Machine Translation with improved accuracy
+ * - Glossary support for consistent terminology
+ * - Batch translation for large volumes
+ * - Better language detection
+ */
+async function translateTextGoogle(
+  text: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+  _apiKey: string // Kept for API compatibility, SDK handles auth
+): Promise<string> {
+  try {
+    // Handle auto-detect: pass undefined to let v3 auto-detect
+    const sourceLang = sourceLanguage === 'auto' ? undefined : sourceLanguage;
+
+    const [translatedText] = await translateTextV3(
+      text,
+      targetLanguage,
+      sourceLang
+    );
+
+    return translatedText || text;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Translation API error: ${message}`);
+  }
+}
+
+function getLanguageLabelForPrompt(code: string): string {
+  if (code === 'auto') return 'the source language (detect automatically; if Chinese, identify Simplified vs Traditional)';
+  return getLanguageName(code) || code;
+}
+
+async function translateTextOpenAI(
+  text: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+  domain: DocumentDomain
+): Promise<string> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OpenAI is not configured. Please set OPENAI_API_KEY.');
+  }
+
+  const system = getDomainSystemPrompt(domain);
+  const source = getLanguageLabelForPrompt(sourceLanguage);
+  const target = getLanguageLabelForPrompt(targetLanguage);
+  const model = process.env.OPENAI_TRANSLATION_MODEL || 'gpt-4o';
+
+  const result = await generateText({
+    model: openai(model),
+    // Don't retry on quota/auth errors; fail fast so the UI gets a quick, clear message.
+    maxRetries: 0,
+    temperature: 0,
+    system,
+    prompt: [
+      `Translate from ${source} to ${target}. Follow ALL rules below.`,
+      '',
+      '## ABSOLUTE RULES:',
+      '1. ONE FIELD PER LINE - never combine different fields.',
+      '2. NEVER use semicolons (;) to join different pieces of information.',
+      '3. Date of Birth and Enrollment Period are ALWAYS on separate lines.',
+      '',
+      '## CORRECT:',
+      'Date of Birth: May 17, 1981',
+      'Studied at this institution from September 1999 to July 2003',
+      '',
+      '## WRONG (never do this):',
+      '"Born May 17, 1981; from September 1999 to July 2003"',
+      '',
+      '## OTHER RULES:',
+      '- Preserve all line breaks from source',
+      '- Use formal language for official documents',
+      '- Format dates as "Month Day, Year"',
+      '',
+      'Output ONLY the translation.',
+      '',
+      'TEXT:',
+      text,
+    ].join('\n'),
+  });
+
+  return result.text || text;
+}
+
+async function translateTextAnthropic(
+  text: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+  domain: DocumentDomain
+): Promise<string> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error('Anthropic is not configured. Please set ANTHROPIC_API_KEY.');
+  }
+
+  const system = getDomainSystemPrompt(domain);
+  const source = getLanguageLabelForPrompt(sourceLanguage);
+  const target = getLanguageLabelForPrompt(targetLanguage);
+  // Anthropic model availability depends on your account. We try a small fallback chain when the model isn't found.
+  const primaryModel = process.env.ANTHROPIC_TRANSLATION_MODEL || 'claude-3-5-sonnet-20240620';
+  const fallbackModels = [
+    primaryModel,
+    'claude-3-5-sonnet-20241022',
+    'claude-3-5-sonnet-20240620',
+    'claude-3-opus-20240229',
+    'claude-3-sonnet-20240229',
+    'claude-3-haiku-20240307',
+  ].filter((m, idx, arr) => arr.indexOf(m) === idx);
+
+  const prompt = [
+    `Translate from ${source} to ${target}. Follow ALL rules below.`,
+    '',
+    '## ABSOLUTE RULES:',
+    '1. ONE FIELD PER LINE - never combine different fields.',
+    '2. NEVER use semicolons (;) to join different pieces of information.',
+    '3. Date of Birth and Enrollment Period are ALWAYS on separate lines.',
+    '',
+    '## CORRECT:',
+    'Date of Birth: May 17, 1981',
+    'Studied at this institution from September 1999 to July 2003',
+    '',
+    '## WRONG (never do this):',
+    '"Born May 17, 1981; from September 1999 to July 2003"',
+    '',
+    '## OTHER RULES:',
+    '- Preserve all line breaks from source',
+    '- Use formal language for official documents',
+    '- Format dates as "Month Day, Year"',
+    '',
+    'Output ONLY the translation.',
+    '',
+    'TEXT:',
+    text,
+  ].join('\n');
+
+  const isModelNotFound = (err: unknown) => {
+    if (!err || typeof err !== 'object') return false;
+    const anyErr = err as any;
+    const statusCode = typeof anyErr.statusCode === 'number' ? anyErr.statusCode : undefined;
+    const responseBody = typeof anyErr.responseBody === 'string' ? anyErr.responseBody : '';
+    const message = typeof anyErr.message === 'string' ? anyErr.message : '';
+    if (statusCode !== 404) return false;
+    return responseBody.includes('not_found_error') && (responseBody.includes('"model:') || message.includes('model:'));
+  };
+
+  let lastErr: unknown;
+  for (const model of fallbackModels) {
+    try {
+      const result = await generateText({
+        model: anthropic(model),
+        maxRetries: 0,
+        temperature: 0,
+        system,
+        prompt,
+      });
+      return result.text || text;
+    } catch (err) {
+      lastErr = err;
+      if (isModelNotFound(err)) continue;
+      throw err;
+    }
+  }
+
+  throw new Error(
+    [
+      'Anthropic translation failed because the selected model is not available for your API key.',
+      `Tried models: ${fallbackModels.join(', ')}`,
+      'Fix: set ANTHROPIC_TRANSLATION_MODEL in .env.local to a model your account has access to.',
+      `Last error: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+    ].join('\n')
+  );
+}
+
+async function translateTextOpenRouter(
+  text: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+  domain: DocumentDomain,
+  openRouterModel?: string
+): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error('OpenRouter is not configured. Please set OPENROUTER_API_KEY.');
+  }
+
+  const system = getDomainSystemPrompt(domain);
+  const source = getLanguageLabelForPrompt(sourceLanguage);
+  const target = getLanguageLabelForPrompt(targetLanguage);
+
+  const model =
+    openRouterModel ||
+    process.env.OPENROUTER_TRANSLATION_MODEL ||
+    OPENROUTER_DEFAULT_MODEL;
+
+  const openrouter = createOpenAI({
+    apiKey,
+    baseURL: 'https://openrouter.ai/api/v1',
+    headers: {
+      // Optional but recommended by OpenRouter
+      'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER || 'http://localhost',
+      'X-Title': process.env.OPENROUTER_APP_NAME || 'Translator-app',
+    },
+  });
+
+  // Vision models with detailed prompts can take 2-4 minutes; default to 5 min timeout
+  const timeoutMs = Number(process.env.OPENROUTER_TIMEOUT_MS || 300000);
+  const abortController = new AbortController();
+  const abortTimer = setTimeout(() => abortController.abort(), timeoutMs);
+
+  const result = await generateText({
+    // IMPORTANT: OpenRouter is OpenAI-Chat-Completions compatible, not OpenAI Responses API.
+    model: openrouter.chat(model),
+    maxRetries: 0,
+    temperature: 0,
+    system,
+    abortSignal: abortController.signal,
+    prompt: [
+      `Translate from ${source} to ${target}. Professional document translation.`,
+      '',
+      '## CRITICAL: PRESERVE DOCUMENT STRUCTURE',
+      '',
+      'Identify the document type and apply appropriate formatting:',
+      '',
+      '### FORMS/CERTIFICATES (labeled fields):',
+      '- Each field on its own line: "Label: Value"',
+      '- Blank lines between sections',
+      '- Never combine different fields',
+      '',
+      '### CONTRACTS/LEGAL (structured clauses):',
+      '- Preserve all numbering (Article 1, 1.1, (a), etc.)',
+      '- Keep paragraph hierarchy and indentation',
+      '- Maintain section breaks',
+      '',
+      '### TRANSCRIPTS/TABLES (columnar data):',
+      '- Keep items aligned and separated',
+      '- Preserve row/column structure',
+      '- Maintain groupings',
+      '',
+      '### LETTERS/NARRATIVE (flowing text):',
+      '- Keep paragraph breaks intact',
+      '- Preserve greeting/body/closing structure',
+      '- Maintain natural flow',
+      '',
+      '## FORMATTING RULES (ALL DOCUMENTS):',
+      '',
+      '1. SPACING: Add blank lines between major sections',
+      '2. DATES: Use "Month Day, Year" format',
+      '3. NAMES: Use standard romanization',
+      '4. NUMBERS: Preserve reference numbers, IDs exactly',
+      '',
+      '## DO NOT:',
+      '- Combine unrelated information with semicolons (;)',
+      '- Merge distinct fields into one line',
+      '- Remove existing line breaks',
+      '- Add explanations or notes',
+      '',
+      '---',
+      'Output ONLY the translation.',
+      '',
+      'TEXT TO TRANSLATE:',
+      '',
+      text,
+    ].join('\n'),
+  });
+
+  clearTimeout(abortTimer);
+
+  return result.text || text;
 }
 

@@ -5,6 +5,8 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/webhooks(.*)',
+  // Avoid Clerk redirect-to-sign-in for fetch() calls; these route handlers already return JSON 401/403.
+  '/api/generate-translated-document(.*)',
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
