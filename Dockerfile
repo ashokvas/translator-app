@@ -11,8 +11,8 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies
-RUN npm ci --only=production=false
+# Install dependencies (use npm install to handle lock file mismatches)
+RUN npm install --legacy-peer-deps
 
 # ============================================
 # Stage 2: Builder
