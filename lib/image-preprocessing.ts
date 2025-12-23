@@ -265,7 +265,7 @@ export async function analyzeImageAndSuggestPreprocessing(
   const width = metadata.width || 0;
   const height = metadata.height || 0;
   const isLowResolution = width < 1000 || height < 1000;
-  const isGrayscale = metadata.channels === 1;
+  const isGrayscale = (metadata.channels as number | undefined) === 1;
   const hasAlpha = metadata.hasAlpha || false;
   const format = metadata.format || 'unknown';
 
