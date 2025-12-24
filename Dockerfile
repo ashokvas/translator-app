@@ -121,9 +121,12 @@ else
     echo "⚠ Warning: GOOGLE_APPLICATION_CREDENTIALS_BASE64 not set (app may use API key instead)"
 fi
 
-# Ensure PORT is set (Coolify sets this dynamically)
-export PORT=${PORT:-3000}
-export HOSTNAME=${HOSTNAME:-0.0.0.0}
+# IMPORTANT:
+# Coolify may inject a dynamic PORT env var. For Next.js standalone behind Traefik,
+# we want a stable internal port that matches Traefik's service label.
+# Coolify's generated Traefik label uses server.port=3000, so force the app to bind to 3000.
+export PORT=3000
+export HOSTNAME="0.0.0.0"
 
 echo "Starting Next.js server on ${HOSTNAME}:${PORT}"
 
