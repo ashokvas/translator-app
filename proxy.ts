@@ -5,6 +5,8 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/webhooks(.*)',
+  // Health check must be public (used by reverse proxies / monitors)
+  '/api/health(.*)',
   // Avoid Clerk redirect-to-sign-in for fetch() calls; these route handlers already return JSON 401/403.
   '/api/generate-translated-document(.*)',
 ]);
