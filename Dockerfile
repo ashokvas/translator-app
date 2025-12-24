@@ -40,7 +40,20 @@ FROM node:20-slim AS runner
 WORKDIR /app
 
 # Install LibreOffice and required system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+#
+# NOTE:
+# Some VPS/firewalls block outbound HTTP (port 80). Debian apt sources in slim images
+# often default to http://deb.debian.org which can cause builds to fail mid-install.
+# We switch apt sources to HTTPS and force IPv4 to make builds more reliable.
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' /etc/apt/sources.list.d/debian.sources; \
+    elif [ -f /etc/apt/sources.list ]; then \
+      sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' /etc/apt/sources.list; \
+    fi; \
+    printf 'Acquire::ForceIPv4 \"true\";\n' > /etc/apt/apt.conf.d/99force-ipv4; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
     libreoffice \
     libreoffice-writer \
     libreoffice-calc \
@@ -49,8 +62,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fontconfig \
     ca-certificates \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && fc-cache -f -v
+    ; \
+    rm -rf /var/lib/apt/lists/*; \
+    fc-cache -f -v
 
 # Create non-root user for security
 RUN groupadd --system --gid 1001 nodejs \
