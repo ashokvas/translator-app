@@ -118,7 +118,7 @@ if [ -n "$GOOGLE_APPLICATION_CREDENTIALS_BASE64" ]; then
             echo "⚠ Warning: Failed to decode GOOGLE_APPLICATION_CREDENTIALS_BASE64"
             echo "  Error: $DECODE_ERROR"
             echo "  Base64 length: ${#CLEAN_BASE64} characters"
-            echo "  First 50 chars: ${CLEAN_BASE64:0:50}..."
+            echo "  (Tip) Re-generate base64 with: base64 -w0 service-account.json"
         fi
     fi
 else

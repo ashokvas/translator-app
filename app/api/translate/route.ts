@@ -125,7 +125,8 @@ export async function POST(request: NextRequest) {
       targetLanguage = targetLanguage || order.targetLanguage;
     }
 
-    // Google API key is only required for Google Translate provider and for OCR (Google Vision).
+    // Optional: API key allows REST fallback for Google services.
+    // If service-account credentials are configured, the SDK will be used and no API key is required.
     const googleApiKey = process.env.GOOGLE_CLOUD_API_KEY;
 
     // Initialize translation progress
@@ -318,15 +319,11 @@ async function translateImage(
   }
 
   // Fallback: OCR with Google Vision + translate extracted text
-  const apiKey = options.googleApiKey;
-  if (!apiKey) {
-    throw new Error('Google Cloud Vision API not configured. Please set GOOGLE_CLOUD_API_KEY.');
-  }
-
+  // Uses SDK (service account) if available, otherwise REST (API key) via lib/google-cloud.ts.
   const base64Image = imageBuf.toString('base64');
   const ocrFeatureType = options.ocrQuality === 'low' ? 'TEXT_DETECTION' : 'DOCUMENT_TEXT_DETECTION';
 
-  const ocrText = await ocrImageBase64(base64Image, apiKey, ocrFeatureType, options.ocrQuality);
+  const ocrText = await ocrImageBase64(base64Image, ocrFeatureType, options.ocrQuality);
   if (!ocrText.trim()) return [];
 
   const translatedText = await translateText(ocrText, sourceLanguage, targetLanguage, options);
@@ -389,7 +386,6 @@ function chunkTextForTranslation(text: string, maxChunkChars = 4000): string[] {
  */
 async function ocrImageBase64(
   base64Image: string,
-  _apiKey: string, // Kept for API compatibility, SDK handles auth
   featureType: 'TEXT_DETECTION' | 'DOCUMENT_TEXT_DETECTION',
   ocrQuality: 'low' | 'high' = 'high'
 ): Promise<string> {
@@ -556,8 +552,6 @@ async function translateScannedPdfWithOcr(
   targetLanguage: string,
   options: TranslationOptions
 ): Promise<Array<{ id: string; originalText: string; translatedText: string; isEdited: boolean; pageNumber?: number; order: number }>> {
-  const apiKey = options.googleApiKey;
-
   // Render PDF pages to PNG using pdfjs-dist and @napi-rs/canvas
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -646,12 +640,9 @@ async function translateScannedPdfWithOcr(
     }
 
     // Fallback: OCR with Google Vision + translate extracted text
-    if (!apiKey) {
-      throw new Error('Google Cloud Vision API not configured. Please set GOOGLE_CLOUD_API_KEY.');
-    }
     const base64 = pngBuf.toString('base64');
     // eslint-disable-next-line no-await-in-loop
-    const ocrText = await ocrImageBase64(base64, apiKey, ocrFeatureType, options.ocrQuality);
+    const ocrText = await ocrImageBase64(base64, ocrFeatureType, options.ocrQuality);
     if (!ocrText || ocrText.length < 5) continue;
     // eslint-disable-next-line no-await-in-loop
     const translatedText = await translateText(ocrText, sourceLanguage, targetLanguage, options);
@@ -1031,11 +1022,8 @@ async function translateText(
   const provider = options.provider;
 
   if (provider === 'google') {
-    const apiKey = options.googleApiKey;
-    if (!apiKey) {
-      throw new Error('Google Translate not configured. Please set GOOGLE_CLOUD_API_KEY.');
-    }
-    return translateTextGoogle(text, sourceLanguage, targetLanguage, apiKey);
+    // Google translation uses `translateTextV3()` which prefers service-account SDK and falls back to API-key REST.
+    return translateTextGoogle(text, sourceLanguage, targetLanguage, options.googleApiKey);
   }
 
   if (provider === 'openai') {
