@@ -45,7 +45,12 @@ WORKDIR /app
 # Some VPS/firewalls block outbound HTTP (port 80). Debian apt sources in slim images
 # often default to http://deb.debian.org which can cause builds to fail mid-install.
 # We switch apt sources to HTTPS and add small retries to make builds more reliable.
+# IMPORTANT: ensure `ca-certificates` exists before switching apt to HTTPS, otherwise
+# apt may fail TLS verification and then "Unable to locate package ..." will happen.
 RUN set -eux; \
+    apt-get update -o Acquire::Retries=5; \
+    apt-get install -y --no-install-recommends ca-certificates; \
+    update-ca-certificates; \
     if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
       sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' /etc/apt/sources.list.d/debian.sources; \
     elif [ -f /etc/apt/sources.list ]; then \
@@ -59,7 +64,6 @@ RUN set -eux; \
     fonts-liberation \
     fonts-dejavu \
     fontconfig \
-    ca-certificates \
     curl \
     ; \
     rm -rf /var/lib/apt/lists/*; \
