@@ -39,6 +39,10 @@ FROM node:20-slim AS runner
 
 WORKDIR /app
 
+# Avoid any interactive prompts during apt installs (important in CI / docker builds)
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+
 # Install LibreOffice and required system dependencies
 #
 # NOTE:
@@ -49,7 +53,7 @@ WORKDIR /app
 # apt may fail TLS verification and then "Unable to locate package ..." will happen.
 RUN set -eux; \
     apt-get update -o Acquire::Retries=5; \
-    apt-get install -y --no-install-recommends ca-certificates; \
+    apt-get install -y --no-install-recommends -o Dpkg::Use-Pty=0 ca-certificates; \
     update-ca-certificates; \
     if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
       sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' /etc/apt/sources.list.d/debian.sources; \
@@ -57,7 +61,7 @@ RUN set -eux; \
       sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' /etc/apt/sources.list; \
     fi; \
     apt-get update -o Acquire::Retries=5; \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y --no-install-recommends -o Dpkg::Use-Pty=0 \
     libreoffice \
     libreoffice-writer \
     libreoffice-calc \
