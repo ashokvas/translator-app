@@ -1023,7 +1023,8 @@ async function translateText(
 
   if (provider === 'google') {
     // Google translation uses `translateTextV3()` which prefers service-account SDK and falls back to API-key REST.
-    return translateTextGoogle(text, sourceLanguage, targetLanguage, options.googleApiKey);
+    // No API key parameter needed; translateTextV3() handles auth automatically (service account or API key).
+    return translateTextGoogle(text, sourceLanguage, targetLanguage);
   }
 
   if (provider === 'openai') {
@@ -1060,8 +1061,7 @@ async function translateText(
 async function translateTextGoogle(
   text: string,
   sourceLanguage: string,
-  targetLanguage: string,
-  _apiKey: string // Kept for API compatibility, SDK handles auth
+  targetLanguage: string
 ): Promise<string> {
   try {
     // Handle auto-detect: pass undefined to let v3 auto-detect
