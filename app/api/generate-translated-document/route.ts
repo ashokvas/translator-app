@@ -12,19 +12,206 @@ import {
   TableRow,
   TableCell,
   WidthType,
+  BorderStyle,
+  AlignmentType,
 } from 'docx';
+import FormData from 'form-data';
+import { Readable } from 'stream';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120; // Increased for PDF conversion
+
+type ExportFormat = 'docx' | 'pdf';
+
+/**
+ * Convert DOCX buffer to PDF using LibreOffice service
+ */
+async function convertDocxToPdf(docxBuffer: Buffer, fileName: string): Promise<Buffer> {
+  const libreofficeUrl = process.env.LIBREOFFICE_SERVICE_URL || 'http://localhost:3001';
+  
+  // Create form data with the DOCX file
+  const formData = new FormData();
+  formData.append('file', Readable.from(docxBuffer), {
+    filename: fileName.replace(/\.[^.]+$/, '.docx'),
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
+
+  const response = await fetch(`${libreofficeUrl}/convert-to-pdf`, {
+    method: 'POST',
+    body: formData as any,
+    headers: formData.getHeaders() as any,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`LibreOffice conversion failed: ${response.status} ${errorText}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+/**
+ * Parse markdown table from text
+ * Returns null if not a valid markdown table
+ */
+function parseMarkdownTable(lines: string[]): { headers: string[]; rows: string[][] } | null {
+  if (lines.length < 2) return null;
+  
+  // Check if first line looks like a table header (starts and ends with |)
+  const headerLine = lines[0].trim();
+  if (!headerLine.startsWith('|') || !headerLine.endsWith('|')) return null;
+  
+  // Check if second line is separator (contains |---| pattern)
+  const separatorLine = lines[1].trim();
+  if (!separatorLine.match(/^\|[-:\s|]+\|$/)) return null;
+  
+  // Parse header
+  const headers = headerLine
+    .split('|')
+    .slice(1, -1) // Remove empty strings from start/end
+    .map(h => h.trim());
+  
+  if (headers.length === 0) return null;
+  
+  // Parse data rows
+  const rows: string[][] = [];
+  for (let i = 2; i < lines.length; i++) {
+    const rowLine = lines[i].trim();
+    if (!rowLine.startsWith('|')) break; // End of table
+    
+    const cells = rowLine
+      .split('|')
+      .slice(1, -1)
+      .map(c => c.trim());
+    
+    // Ensure row has same number of columns as header
+    while (cells.length < headers.length) {
+      cells.push('');
+    }
+    
+    rows.push(cells.slice(0, headers.length));
+  }
+  
+  return { headers, rows };
+}
+
+/**
+ * Create a Word table with borders from parsed markdown table
+ */
+function createWordTable(tableData: { headers: string[]; rows: string[][] }): Table {
+  const borderStyle = {
+    style: BorderStyle.SINGLE,
+    size: 1,
+    color: '000000',
+  };
+  
+  const cellBorders = {
+    top: borderStyle,
+    bottom: borderStyle,
+    left: borderStyle,
+    right: borderStyle,
+  };
+  
+  const tableRows: TableRow[] = [];
+  
+  // Header row (bold)
+  tableRows.push(
+    new TableRow({
+      children: tableData.headers.map(header => 
+        new TableCell({
+          borders: cellBorders,
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: header, bold: true })],
+              alignment: AlignmentType.CENTER,
+            }),
+          ],
+        })
+      ),
+    })
+  );
+  
+  // Data rows
+  for (const row of tableData.rows) {
+    tableRows.push(
+      new TableRow({
+        children: row.map(cell => 
+          new TableCell({
+            borders: cellBorders,
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: cell })],
+              }),
+            ],
+          })
+        ),
+      })
+    );
+  }
+  
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: tableRows,
+  });
+}
+
+/**
+ * Process translated text and convert markdown tables to Word tables
+ */
+function processTranslatedText(
+  text: string,
+  blocks: Array<Paragraph | Table>,
+  normalizeLineForDocx: (line: string) => string
+) {
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  let i = 0;
+  
+  while (i < lines.length) {
+    const line = lines[i];
+    
+    // Check if this is the start of a markdown table
+    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+      // Collect all consecutive table lines
+      const tableLines: string[] = [];
+      let j = i;
+      while (j < lines.length && lines[j].trim().startsWith('|')) {
+        tableLines.push(lines[j]);
+        j++;
+      }
+      
+      // Try to parse as markdown table
+      const tableData = parseMarkdownTable(tableLines);
+      if (tableData && tableData.rows.length > 0) {
+        // Successfully parsed - create Word table
+        blocks.push(createWordTable(tableData));
+        blocks.push(new Paragraph({ text: '', spacing: { after: 200 } })); // Add spacing after table
+        i = j; // Skip past table lines
+        continue;
+      }
+    }
+    
+    // Regular text line
+    const normalizedLine = normalizeLineForDocx(line);
+    blocks.push(
+      new Paragraph({
+        children: [new TextRun({ text: normalizedLine })],
+        spacing: { after: line.trim() === '' ? 200 : 0 },
+      })
+    );
+    i++;
+  }
+}
 
 /**
  * POST /api/generate-translated-document
- * Generates a Word document from translation segments
+ * Generates a Word or PDF document from translation segments
  * 
  * Body: {
  *   translationId: string,
  *   orderId: string,
- *   fileName: string
+ *   fileName: string,
+ *   format?: 'docx' | 'pdf'  // default: 'docx'
  * }
  */
 export async function POST(request: NextRequest) {
@@ -53,7 +240,8 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { translationId, orderId, fileName } = body;
+    const { translationId, orderId, fileName, format: requestedFormat } = body;
+    const format: ExportFormat = requestedFormat === 'pdf' ? 'pdf' : 'docx';
 
     if (!translationId || !orderId || !fileName) {
       return NextResponse.json(
@@ -95,37 +283,6 @@ export async function POST(request: NextRequest) {
       if (!leadingSpacesMatch) return line;
       const leadingSpaces = leadingSpacesMatch[0].length;
       return `${'\u00A0'.repeat(leadingSpaces)}${line.slice(leadingSpaces)}`;
-    }
-
-    function pushMultilineText(text: string, opts?: { after?: number }) {
-      const after = opts?.after ?? 0;
-      const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-      if (lines.length === 0) {
-        blocks.push(new Paragraph({ text: '', spacing: { after } }));
-        return;
-      }
-
-      lines.forEach((rawLine, idx) => {
-        const isLast = idx === lines.length - 1;
-        const line = normalizeLineForDocx(rawLine);
-        blocks.push(
-          new Paragraph({
-            children: [new TextRun({ text: line })],
-            spacing: { after: isLast ? after : 0 },
-          })
-        );
-      });
-    }
-
-    function paragraphsFromMultilineText(text: string): Paragraph[] {
-      const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-      if (lines.length === 0) return [new Paragraph({ text: '' })];
-      return lines.map((rawLine) => {
-        const line = normalizeLineForDocx(rawLine);
-        return new Paragraph({
-          children: [new TextRun({ text: line })],
-        });
-      });
     }
 
     // Add title
@@ -172,70 +329,24 @@ export async function POST(request: NextRequest) {
 
     const segmentsSorted = translation.segments.sort((a, b) => a.order - b.order);
 
-    // Build bilingual table: Original (left) + Translation (right)
-    const tableRows: TableRow[] = [];
-
-    // Header row
-    tableRows.push(
-      new TableRow({
-        children: [
-          new TableCell({
-            width: { size: 50, type: WidthType.PERCENTAGE },
-            children: [new Paragraph({ children: [new TextRun({ text: 'Original', bold: true })] })],
-          }),
-          new TableCell({
-            width: { size: 50, type: WidthType.PERCENTAGE },
-            children: [new Paragraph({ children: [new TextRun({ text: 'Translation', bold: true })] })],
-          }),
-        ],
-      })
-    );
-
+    // Process each segment
     let lastPageNumber: number | undefined;
     for (const segment of segmentsSorted) {
       if (segment.pageNumber && segment.pageNumber !== lastPageNumber) {
         lastPageNumber = segment.pageNumber;
-        // Page separator row (spans both columns)
-        tableRows.push(
-          new TableRow({
-            children: [
-              new TableCell({
-                columnSpan: 2,
-                children: [
-                  new Paragraph({
-                    text: `Page ${segment.pageNumber}`,
-                    heading: HeadingLevel.HEADING_2,
-                    spacing: { before: 300, after: 150 },
-                  }),
-                ],
-              }),
-            ],
+        // Page separator
+        blocks.push(
+          new Paragraph({
+            text: `Page ${segment.pageNumber}`,
+            heading: HeadingLevel.HEADING_2,
+            spacing: { before: 300, after: 150 },
           })
         );
       }
 
-      tableRows.push(
-        new TableRow({
-          children: [
-            new TableCell({
-              width: { size: 50, type: WidthType.PERCENTAGE },
-              children: paragraphsFromMultilineText(segment.originalText || ''),
-            }),
-            new TableCell({
-              width: { size: 50, type: WidthType.PERCENTAGE },
-              children: paragraphsFromMultilineText(segment.translatedText || ''),
-            }),
-          ],
-        })
-      );
+      // Process translated text - converts markdown tables to Word tables
+      processTranslatedText(segment.translatedText || '', blocks, normalizeLineForDocx);
     }
-
-    blocks.push(
-      new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: tableRows,
-      })
-    );
 
     // Create document
     const doc = new Document({
@@ -247,17 +358,40 @@ export async function POST(request: NextRequest) {
       ],
     });
 
-    // Generate buffer
-    const buffer = await Packer.toBuffer(doc);
+    // Generate DOCX buffer
+    const docxBuffer = await Packer.toBuffer(doc);
+
+    // Convert to PDF if requested
+    let finalBuffer: Buffer;
+    let fileExtension: string;
+    let mimeType: string;
+
+    if (format === 'pdf') {
+      try {
+        finalBuffer = await convertDocxToPdf(Buffer.from(docxBuffer), fileName);
+        fileExtension = 'pdf';
+        mimeType = 'application/pdf';
+      } catch (pdfError) {
+        console.error('PDF conversion failed, falling back to DOCX:', pdfError);
+        // Fallback to DOCX if PDF conversion fails
+        finalBuffer = Buffer.from(docxBuffer);
+        fileExtension = 'docx';
+        mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      }
+    } else {
+      finalBuffer = Buffer.from(docxBuffer);
+      fileExtension = 'docx';
+      mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
 
     // Upload to Convex storage
     const uploadUrl = await convexClient.mutation(api.files.generateUploadUrl);
 
     const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+      headers: { 'Content-Type': mimeType },
       // DOM lib types don't include Node.js Buffer in BodyInit, but Undici/Node fetch accepts Uint8Array.
-      body: new Uint8Array(buffer),
+      body: new Uint8Array(finalBuffer),
     });
 
     if (!uploadResponse.ok) {
@@ -267,12 +401,12 @@ export async function POST(request: NextRequest) {
     const { storageId } = await uploadResponse.json();
 
     // Store file metadata
-    const translatedFileName = fileName.replace(/\.[^.]+$/, '_translated.docx');
+    const translatedFileName = fileName.replace(/\.[^.]+$/, `_translated.${fileExtension}`);
     const fileMetadata = await convexClient.mutation(api.files.storeFileMetadata, {
       storageId,
       fileName: translatedFileName,
-      fileType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      fileSize: buffer.byteLength,
+      fileType: mimeType,
+      fileSize: finalBuffer.byteLength,
       pageCount: translation.segments.length,
     });
 
@@ -285,8 +419,8 @@ export async function POST(request: NextRequest) {
           fileName: translatedFileName,
           fileUrl: fileMetadata.fileUrl,
           storageId: storageId as any,
-          fileSize: buffer.byteLength,
-          fileType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          fileSize: finalBuffer.byteLength,
+          fileType: mimeType,
           originalFileName: fileName,
         },
       ],
@@ -296,7 +430,8 @@ export async function POST(request: NextRequest) {
       success: true,
       fileName: translatedFileName,
       fileUrl: fileMetadata.fileUrl,
-      message: 'Translated document generated successfully',
+      format: fileExtension,
+      message: `Translated document generated successfully as ${fileExtension.toUpperCase()}`,
     });
   } catch (error) {
     console.error('Document generation error:', error);
@@ -309,4 +444,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

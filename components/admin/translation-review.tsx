@@ -21,6 +21,7 @@ import {
   type DocumentDomain,
   type TranslationProvider,
 } from '@/lib/translation-providers';
+import { MarkdownTableRenderer } from '@/components/ui/markdown-table-renderer';
 
 interface TranslationReviewProps {
   orderId: Id<'orders'>;
@@ -382,10 +383,8 @@ export function TranslationReview({
                       <label className="block text-xs font-medium text-gray-700 mb-2">
                         Original ({getLanguageName(sourceLanguage)})
                       </label>
-                      <div className="p-3 bg-gray-50 rounded-md border border-gray-200 min-h-[100px]">
-                        <p className="text-sm text-gray-900 whitespace-pre-wrap">
-                          {segment.originalText}
-                        </p>
+                      <div className="p-3 bg-gray-50 rounded-md border border-gray-200 min-h-[100px] overflow-auto">
+                        <MarkdownTableRenderer text={segment.originalText} />
                       </div>
                     </div>
 
@@ -430,16 +429,14 @@ export function TranslationReview({
                       ) : (
                         <div className="space-y-2">
                           <div
-                            className={`p-3 rounded-md border min-h-[100px] cursor-text ${
+                            className={`p-3 rounded-md border min-h-[100px] cursor-text overflow-auto ${
                               hasChanges
                                 ? 'bg-yellow-50 border-yellow-300'
                                 : 'bg-white border-gray-200'
                             }`}
                             onClick={() => setEditingSegmentId(segment.id)}
                           >
-                            <p className="text-sm text-gray-900 whitespace-pre-wrap">
-                              {editedText}
-                            </p>
+                            <MarkdownTableRenderer text={editedText} />
                           </div>
                           <div className="flex gap-2">
                             <Button
@@ -498,13 +495,16 @@ export function TranslationReview({
                         }
                       }}
                     >
-                      <SelectItem value={`openrouter:${OPENROUTER_DEFAULT_MODEL}`}>
-                        OpenRouter: OpenAI GPT-5.2 (latest)
+                      <SelectItem value="openrouter:openai/gpt-5.2">
+                        OpenAI GPT-5.2 (best quality)
                       </SelectItem>
-                      <SelectItem value="openrouter:anthropic/claude-sonnet-4.5">
-                        OpenRouter: Anthropic Claude Sonnet 4.5 (latest)
+                      <SelectItem value="openrouter:openai/gpt-4o">
+                        OpenAI GPT-4o (recommended)
                       </SelectItem>
-                      <SelectItem value="google:">Google Translate</SelectItem>
+                      <SelectItem value="openrouter:anthropic/claude-sonnet-4">
+                        Claude Sonnet 4 (fast)
+                      </SelectItem>
+                      <SelectItem value="google:">Google Cloud Translation</SelectItem>
                     </Select>
                     <p className="mt-1 text-xs text-gray-500">
                       Tip: for latest models, use OpenRouter. Google is a fallback.

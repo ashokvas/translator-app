@@ -37,6 +37,7 @@ export default defineSchema({
           fileSize: v.number(),
           fileType: v.string(),
           originalFileName: v.string(), // Reference to original file
+          translatedAt: v.optional(v.number()), // Timestamp when file was translated/generated
         })
       )
     ),
@@ -108,6 +109,7 @@ export default defineSchema({
     progress: v.number(), // 0-100 percentage
     sourceLanguage: v.string(),
     targetLanguage: v.string(),
+    approvedAt: v.optional(v.number()), // Timestamp when translation was approved
     createdAt: v.number(),
     updatedAt: v.number(),
   })

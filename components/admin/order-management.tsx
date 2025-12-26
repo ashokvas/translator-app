@@ -39,7 +39,8 @@ export function OrderManagement() {
   const [selectedOrder, setSelectedOrder] = useState<Id<'orders'> | null>(null);
   const [translatedFiles, setTranslatedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [translatingFileIndex, setTranslatingFileIndex] = useState<number | null>(null);
+  // Support parallel translations - track multiple file indexes being translated
+  const [translatingFileIndexes, setTranslatingFileIndexes] = useState<Set<number>>(new Set());
   const [reviewingFileIndex, setReviewingFileIndex] = useState<number | null>(null);
   const [translationProgress, setTranslationProgress] = useState<Record<number, number>>({});
   const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('google');
@@ -47,6 +48,12 @@ export function OrderManagement() {
   const [openRouterModel, setOpenRouterModel] = useState<string>(OPENROUTER_DEFAULT_MODEL);
   const [ocrQuality, setOcrQuality] = useState<'high' | 'low'>('high');
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  // Approved files selection for combined export
+  const [selectedForCombine, setSelectedForCombine] = useState<Set<string>>(new Set());
+  // Export format selection
+  const [exportFormat, setExportFormat] = useState<'docx' | 'pdf'>('docx');
+  const [isGeneratingCombined, setIsGeneratingCombined] = useState(false);
+  const [isGeneratingIndividual, setIsGeneratingIndividual] = useState<Set<string>>(new Set());
 
   const orderDetails = useQuery(
     api.orders.getOrderWithFiles,
@@ -58,6 +65,8 @@ export function OrderManagement() {
   const uploadTranslatedFiles = useMutation(api.orders.uploadTranslatedFiles);
   const updateOrderStatus = useMutation(api.orders.updateOrderStatus);
   const updateTranslationProgress = useMutation(api.translations.updateTranslationProgress);
+  const deleteTranslation = useMutation(api.translations.deleteTranslation);
+  const deleteTranslatedFile = useMutation(api.orders.deleteTranslatedFile);
 
   // Subscribe to translation progress
   const translations = useQuery(
@@ -84,7 +93,14 @@ export function OrderManagement() {
         // Stop the local "Translating..." UI whenever the backend record is no longer translating.
         // This prevents the UI from getting stuck at 0% if the API fails and resets status to pending.
         if (translation.status !== 'translating') {
-          setTranslatingFileIndex((prev) => (prev === fileIndex ? null : prev));
+          setTranslatingFileIndexes((prev) => {
+            if (prev.has(fileIndex)) {
+              const next = new Set(prev);
+              next.delete(fileIndex);
+              return next;
+            }
+            return prev;
+          });
         }
       }
     });
@@ -170,7 +186,8 @@ export function OrderManagement() {
     if (!selectedOrder || !user?.id || !orderDetails) return;
 
     const file = orderDetails.files[fileIndex];
-    setTranslatingFileIndex(fileIndex);
+    // Add to set of translating files (supports parallel translations)
+    setTranslatingFileIndexes((prev) => new Set(prev).add(fileIndex));
     setTranslationProgress((prev) => ({ ...prev, [fileIndex]: 0 }));
 
     try {
@@ -222,7 +239,223 @@ export function OrderManagement() {
         title: 'Translation failed',
         message: error instanceof Error ? error.message : String(error),
       });
-      setTranslatingFileIndex(null);
+      // Remove from translating set on error
+      setTranslatingFileIndexes((prev) => {
+        const next = new Set(prev);
+        next.delete(fileIndex);
+        return next;
+      });
+    }
+  };
+
+  // Handle translating all files at once
+  const handleTranslateAll = async () => {
+    if (!selectedOrder || !user?.id || !orderDetails) return;
+    
+    const canTranslate = orderDetails.status !== 'pending';
+    if (!canTranslate) return;
+
+    // Get files that haven't been translated yet or need retranslation
+    const filesToTranslate = orderDetails.files
+      .map((file, index) => ({ file, index }))
+      .filter(({ index }) => !translatingFileIndexes.has(index));
+
+    if (filesToTranslate.length === 0) {
+      setNotice({ title: 'No files', message: 'All files are already being translated.' });
+      return;
+    }
+
+    setNotice({
+      title: 'Starting translations',
+      message: `Starting translation for ${filesToTranslate.length} file(s)...`,
+    });
+
+    // Start all translations in parallel
+    await Promise.all(filesToTranslate.map(({ index }) => handleTranslate(index)));
+  };
+
+  // Handle generating individual document with format selection
+  const handleGenerateIndividualDocument = async (fileName: string) => {
+    if (!selectedOrder || !user?.id || !translations) return;
+
+    const translation = translations.find((t) => t.fileName === fileName);
+    if (!translation) {
+      setNotice({ title: 'Error', message: 'Translation not found' });
+      return;
+    }
+
+    setIsGeneratingIndividual((prev) => new Set(prev).add(fileName));
+
+    try {
+      const response = await fetch('/api/generate-translated-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          translationId: translation._id,
+          orderId: selectedOrder,
+          fileName,
+          format: exportFormat,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to generate document');
+      }
+
+      const result = await response.json();
+      
+      // Download the file
+      if (result.fileUrl) {
+        window.open(result.fileUrl, '_blank');
+      }
+
+      setNotice({
+        title: 'Document Generated',
+        message: `${result.fileName} has been generated and added to the order.`,
+      });
+    } catch (error) {
+      console.error('Document generation error:', error);
+      setNotice({
+        title: 'Generation failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsGeneratingIndividual((prev) => {
+        const next = new Set(prev);
+        next.delete(fileName);
+        return next;
+      });
+    }
+  };
+
+  // Handle generating combined document from selected translations
+  const handleGenerateCombinedDocument = async () => {
+    if (!selectedOrder || !user?.id || selectedForCombine.size === 0) {
+      setNotice({ title: 'No selection', message: 'Please select files to combine.' });
+      return;
+    }
+
+    setIsGeneratingCombined(true);
+
+    try {
+      const response = await fetch('/api/generate-combined-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: selectedOrder,
+          fileNames: Array.from(selectedForCombine),
+          format: exportFormat,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to generate combined document');
+      }
+
+      const result = await response.json();
+
+      // Download the file
+      if (result.fileUrl) {
+        window.open(result.fileUrl, '_blank');
+      }
+
+      setNotice({
+        title: 'Combined Document Generated',
+        message: `${result.fileName} has been generated with ${selectedForCombine.size} translations.`,
+      });
+    } catch (error) {
+      console.error('Combined document generation error:', error);
+      setNotice({
+        title: 'Generation failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsGeneratingCombined(false);
+    }
+  };
+
+  // Handle downloading all approved translations separately
+  const handleDownloadAllSeparately = async () => {
+    if (!translations) return;
+
+    const approvedTranslations = translations.filter((t) => t.status === 'approved');
+    if (approvedTranslations.length === 0) {
+      setNotice({ title: 'No files', message: 'No approved translations to download.' });
+      return;
+    }
+
+    setNotice({
+      title: 'Generating documents',
+      message: `Generating ${approvedTranslations.length} document(s)...`,
+    });
+
+    // Generate all documents in parallel
+    await Promise.all(
+      approvedTranslations.map((t) => handleGenerateIndividualDocument(t.fileName))
+    );
+  };
+
+  // Handle deleting an approved translation
+  const handleDeleteTranslation = async (translationId: Id<'translations'>, fileName: string) => {
+    if (!user?.id) return;
+
+    if (!confirm(`Are you sure you want to delete the approved translation for "${fileName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await deleteTranslation({
+        translationId,
+        clerkId: user.id,
+      });
+
+      // Remove from selected set if it was selected
+      setSelectedForCombine((prev) => {
+        const next = new Set(prev);
+        next.delete(fileName);
+        return next;
+      });
+
+      setNotice({
+        title: 'Deleted',
+        message: `Approved translation for "${fileName}" has been deleted.`,
+      });
+    } catch (error) {
+      console.error('Delete translation error:', error);
+      setNotice({
+        title: 'Delete failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  // Handle deleting a translated file
+  const handleDeleteTranslatedFile = async (fileName: string) => {
+    if (!selectedOrder || !user?.id) return;
+
+    if (!confirm(`Are you sure you want to delete "${fileName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await deleteTranslatedFile({
+        orderId: selectedOrder,
+        fileName,
+        clerkId: user.id,
+      });
+
+      setNotice({
+        title: 'Deleted',
+        message: `Translated file "${fileName}" has been deleted.`,
+      });
+    } catch (error) {
+      console.error('Delete translated file error:', error);
+      setNotice({
+        title: 'Delete failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
@@ -446,14 +679,14 @@ export function OrderManagement() {
                     }
                   }}
                 >
-                  <SelectItem value="openrouter:anthropic/claude-opus-4.5">
-                    Claude Opus 4.5 (best quality)
+                  <SelectItem value="openrouter:openai/gpt-5.2">
+                    OpenAI GPT-5.2 (best quality)
                   </SelectItem>
-                  <SelectItem value={`openrouter:${OPENROUTER_DEFAULT_MODEL}`}>
-                    OpenAI GPT-5.2 (latest)
+                  <SelectItem value="openrouter:openai/gpt-4o">
+                    OpenAI GPT-4o (recommended)
                   </SelectItem>
-                  <SelectItem value="openrouter:anthropic/claude-sonnet-4.5">
-                    Claude Sonnet 4.5 (fast)
+                  <SelectItem value="openrouter:anthropic/claude-sonnet-4">
+                    Claude Sonnet 4 (fast)
                   </SelectItem>
                   <SelectItem value="google:">Google Cloud Translation</SelectItem>
                 </Select>
@@ -522,10 +755,22 @@ export function OrderManagement() {
 
           {/* Original Files with Translate buttons */}
           <div className="mb-6">
-            <h4 className="font-medium text-gray-900 mb-2">Original Files:</h4>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-medium text-gray-900">Original Files:</h4>
+              {orderDetails.status !== 'pending' && orderDetails.files.length > 1 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleTranslateAll}
+                  disabled={translatingFileIndexes.size === orderDetails.files.length}
+                >
+                  Translate All
+                </Button>
+              )}
+            </div>
             <div className="space-y-2">
               {orderDetails.files.map((file, index) => {
-                const isTranslating = translatingFileIndex === index;
+                const isTranslating = translatingFileIndexes.has(index);
                 const progress = translationProgress[index] || 0;
                 // Handle case where translations query is still loading or failed
                 const translation = translations === undefined ? undefined : translations.find((t) => t.fileName === file.fileName);
@@ -557,12 +802,12 @@ export function OrderManagement() {
                           <p className="text-xs text-gray-600">Translating... {progress}%</p>
                         </div>
                       )}
-                      {translation && translation.status === 'review' && (
+                      {translation && translation.status === 'review' && !isTranslating && (
                         <p className="text-xs text-green-600 mt-1">
                           ✓ Translation ready for review
                         </p>
                       )}
-                      {translation && translation.status === 'approved' && (
+                      {translation && translation.status === 'approved' && !isTranslating && (
                         <p className="text-xs text-blue-600 mt-1">✓ Translation approved</p>
                       )}
                       {!canTranslate && (
@@ -605,6 +850,152 @@ export function OrderManagement() {
             </div>
           </div>
 
+          {/* Approved Translations Section */}
+          {translations && translations.filter((t) => t.status === 'approved').length > 0 && (
+            <div className="mb-6 border border-green-200 rounded-lg p-4 bg-green-50">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-medium text-gray-900">
+                  Approved Translations ({translations.filter((t) => t.status === 'approved').length})
+                </h4>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const approvedFileNames = translations
+                        .filter((t) => t.status === 'approved')
+                        .map((t) => t.fileName);
+                      if (selectedForCombine.size === approvedFileNames.length) {
+                        setSelectedForCombine(new Set());
+                      } else {
+                        setSelectedForCombine(new Set(approvedFileNames));
+                      }
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-800"
+                  >
+                    {selectedForCombine.size === translations.filter((t) => t.status === 'approved').length
+                      ? 'Deselect All'
+                      : 'Select All'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Format Selection */}
+              <div className="mb-4 p-3 bg-white rounded-md border border-gray-200">
+                <label className="block text-xs font-medium text-gray-700 mb-2">
+                  Download Format:
+                </label>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="exportFormat"
+                      value="docx"
+                      checked={exportFormat === 'docx'}
+                      onChange={() => setExportFormat('docx')}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">Word (.docx)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="exportFormat"
+                      value="pdf"
+                      checked={exportFormat === 'pdf'}
+                      onChange={() => setExportFormat('pdf')}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">PDF (.pdf)</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Approved Files List with Checkboxes */}
+              <div className="space-y-2 mb-4">
+                {translations
+                  .filter((t) => t.status === 'approved')
+                  .map((translation) => (
+                    <div
+                      key={translation._id}
+                      className="flex items-center justify-between p-3 bg-white rounded-lg border border-green-100"
+                    >
+                      <div className="flex items-center gap-3 flex-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedForCombine.has(translation.fileName)}
+                          onChange={(e) => {
+                            setSelectedForCombine((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) {
+                                next.add(translation.fileName);
+                              } else {
+                                next.delete(translation.fileName);
+                              }
+                              return next;
+                            });
+                          }}
+                          className="h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900">{translation.fileName}</p>
+                          <p className="text-xs text-gray-500">
+                            {translation.segments.length} segment(s) •{' '}
+                            {getLanguageName(translation.targetLanguage)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <span className="text-xs text-green-600 font-medium block">✓ Approved</span>
+                          {translation.approvedAt && (
+                            <span className="text-xs text-gray-500 block">
+                              {format(new Date(translation.approvedAt), 'MMM d, yyyy h:mm a')}
+                            </span>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={isGeneratingIndividual.has(translation.fileName)}
+                          onClick={() => handleGenerateIndividualDocument(translation.fileName)}
+                        >
+                          {isGeneratingIndividual.has(translation.fileName) ? 'Generating...' : `Download ${exportFormat.toUpperCase()}`}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleDeleteTranslation(translation._id, translation.fileName)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+
+              {/* Combined Download Actions */}
+              <div className="flex items-center gap-3 pt-3 border-t border-green-200">
+                <Button
+                  onClick={handleGenerateCombinedDocument}
+                  disabled={selectedForCombine.size === 0 || isGeneratingCombined}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {isGeneratingCombined
+                    ? 'Generating...'
+                    : `Generate Combined ${exportFormat.toUpperCase()} (${selectedForCombine.size} files)`}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadAllSeparately}
+                  disabled={isGeneratingCombined || translations.filter((t) => t.status === 'approved').length === 0}
+                >
+                  Download All Separately
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Translated Files (if uploaded) */}
           {orderDetails.translatedFiles && orderDetails.translatedFiles.length > 0 && (
             <div className="mb-6">
@@ -615,20 +1006,35 @@ export function OrderManagement() {
                     key={index}
                     className="flex items-center justify-between p-3 bg-green-50 rounded-lg"
                   >
-                    <div>
+                    <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">{file.fileName}</p>
                       <p className="text-xs text-gray-500">
                         {getLanguageName(orderDetails.targetLanguage)}
+                        {file.translatedAt && (
+                          <span className="ml-2">
+                            • Translated: {format(new Date(file.translatedAt), 'MMM d, yyyy h:mm a')}
+                          </span>
+                        )}
                       </p>
                     </div>
-                    <a
-                      href={file.fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800 text-sm"
-                    >
-                      Download
-                    </a>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={file.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 text-sm"
+                      >
+                        Download
+                      </a>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDeleteTranslatedFile(file.fileName)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -154,49 +154,202 @@ async function translateTextV2Rest(
 }
 
 /**
+ * Glossary configuration for domain-specific translations
+ * To use glossaries:
+ * 1. Create a CSV glossary file with term pairs
+ * 2. Upload to Google Cloud Storage
+ * 3. Create a glossary resource using createGlossary()
+ * 4. Reference the glossary name in translation requests
+ */
+export interface GlossaryConfig {
+  /** The glossary resource name (e.g., 'legal-terms', 'medical-terms') */
+  glossaryName: string;
+  /** Whether to ignore the glossary for case differences */
+  ignoreCase?: boolean;
+}
+
+/**
+ * Get the full glossary resource path for Translation v3
+ */
+function getGlossaryPath(glossaryName: string, location = 'global'): string {
+  return `projects/${getProjectId()}/locations/${location}/glossaries/${glossaryName}`;
+}
+
+/**
+ * Create a glossary resource from a Cloud Storage file
+ * The glossary file should be CSV format with header row specifying language codes
+ * Example CSV:
+ *   en,es
+ *   certificate,certificado
+ *   diploma,diploma
+ *   transcript,expediente académico
+ */
+export async function createGlossary(
+  glossaryName: string,
+  gcsUri: string,
+  sourceLanguageCode: string,
+  targetLanguageCode: string,
+  location = 'global'
+): Promise<void> {
+  if (!hasServiceAccountCredentials()) {
+    throw new Error('Creating glossaries requires service account credentials');
+  }
+
+  const client = getTranslationClient();
+  const parent = getTranslationParent(location);
+
+  const glossary = {
+    name: getGlossaryPath(glossaryName, location),
+    languagePair: {
+      sourceLanguageCode,
+      targetLanguageCode,
+    },
+    inputConfig: {
+      gcsSource: {
+        inputUri: gcsUri,
+      },
+    },
+  };
+
+  const [operation] = await client.createGlossary({
+    parent,
+    glossary,
+  });
+
+  // Wait for the glossary creation to complete
+  await operation.promise();
+  console.log(`[Translation] Glossary '${glossaryName}' created successfully`);
+}
+
+/**
+ * List available glossaries
+ */
+export async function listGlossaries(location = 'global'): Promise<string[]> {
+  if (!hasServiceAccountCredentials()) {
+    return [];
+  }
+
+  const client = getTranslationClient();
+  const parent = getTranslationParent(location);
+
+  const [glossaries] = await client.listGlossaries({ parent });
+  return glossaries.map((g) => g.name || '').filter(Boolean);
+}
+
+/**
+ * Check if a glossary exists
+ */
+export async function glossaryExists(glossaryName: string, location = 'global'): Promise<boolean> {
+  if (!hasServiceAccountCredentials()) {
+    return false;
+  }
+
+  try {
+    const client = getTranslationClient();
+    await client.getGlossary({ name: getGlossaryPath(glossaryName, location) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Translate text using Google Cloud Translation v3 (SDK with service account)
+ * Supports glossaries for domain-specific terminology
  */
 async function translateTextV3Sdk(
   text: string | string[],
   targetLanguage: string,
   sourceLanguage?: string,
-  mimeType: 'text/plain' | 'text/html' = 'text/plain'
+  mimeType: 'text/plain' | 'text/html' = 'text/plain',
+  glossaryConfig?: GlossaryConfig
 ): Promise<string[]> {
   const client = getTranslationClient();
   const parent = getTranslationParent();
 
   const contents = Array.isArray(text) ? text : [text];
 
-  const [response] = await client.translateText({
+  // Build the translation request
+  const request: any = {
     parent,
     contents,
     targetLanguageCode: targetLanguage,
     sourceLanguageCode: sourceLanguage || undefined,
     mimeType,
-  });
+  };
 
-  return response.translations?.map((t) => t.translatedText || '') || contents;
+  // Add glossary configuration if provided and glossary exists
+  if (glossaryConfig?.glossaryName && sourceLanguage) {
+    try {
+      const exists = await glossaryExists(glossaryConfig.glossaryName);
+      if (exists) {
+        request.glossaryConfig = {
+          glossary: getGlossaryPath(glossaryConfig.glossaryName),
+          ignoreCase: glossaryConfig.ignoreCase ?? true,
+        };
+        console.log(`[Translation] Using glossary: ${glossaryConfig.glossaryName}`);
+      }
+    } catch (error) {
+      console.warn(`[Translation] Glossary '${glossaryConfig.glossaryName}' not found, proceeding without`);
+    }
+  }
+
+  const [response] = await client.translateText(request);
+
+  // If glossary was used, prefer glossaryTranslation when available
+  return response.translations?.map((t) => {
+    if (t.glossaryTranslations?.[0]?.translatedText) {
+      return t.glossaryTranslations[0].translatedText;
+    }
+    return t.translatedText || '';
+  }) || contents;
+}
+
+/**
+ * Get the recommended glossary name for a document domain
+ * These glossaries must be created separately and uploaded to Cloud Storage
+ */
+export function getGlossaryNameForDomain(domain: string): string | undefined {
+  const glossaryMap: Record<string, string> = {
+    certificate: 'certificate-official-terms',
+    legal: 'legal-terms',
+    medical: 'medical-terms',
+    technical: 'technical-terms',
+    general: 'general-terms',
+  };
+  return glossaryMap[domain];
 }
 
 /**
  * Translate text using the best available API version
  *
- * - Uses v3 (SDK) if service account is configured
- * - Falls back to v2 (REST) if only API key is available
+ * - Uses v3 (SDK) if service account is configured (supports glossaries)
+ * - Falls back to v2 (REST) if only API key is available (no glossary support)
+ *
+ * @param text - Text to translate
+ * @param targetLanguage - Target language code
+ * @param sourceLanguage - Source language code (optional, auto-detect if not provided)
+ * @param mimeType - MIME type of the text
+ * @param glossaryConfig - Optional glossary configuration for domain-specific terms
  */
 export async function translateTextV3(
   text: string | string[],
   targetLanguage: string,
   sourceLanguage?: string,
-  mimeType: 'text/plain' | 'text/html' = 'text/plain'
+  mimeType: 'text/plain' | 'text/html' = 'text/plain',
+  glossaryConfig?: GlossaryConfig
 ): Promise<string[]> {
   const authMode = getAuthMode();
 
   if (authMode === 'service_account') {
     console.log('[Translation] Using Google Cloud Translation v3 (service account)');
-    return translateTextV3Sdk(text, targetLanguage, sourceLanguage, mimeType);
+    return translateTextV3Sdk(text, targetLanguage, sourceLanguage, mimeType, glossaryConfig);
   } else if (authMode === 'api_key') {
     console.log('[Translation] Using Google Cloud Translation v2 (API key)');
+    // v2 API doesn't support glossaries
+    if (glossaryConfig) {
+      console.warn('[Translation] Glossaries not supported in v2 API, using standard translation');
+    }
     return translateTextV2Rest(text, targetLanguage, sourceLanguage);
   } else {
     throw new Error(

@@ -134,6 +134,104 @@ app.post('/count-pages', upload.single('file'), async (req, res) => {
   }
 });
 
+// Convert DOCX/Office document to PDF
+app.post('/convert-to-pdf', upload.single('file'), async (req, res) => {
+  let tempPdfPath = null;
+  let inputPath = null;
+  
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    inputPath = req.file.path;
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    
+    // Validate file type
+    if (!['.docx', '.xlsx', '.doc', '.xls', '.odt', '.ods'].includes(ext)) {
+      return res.status(400).json({ 
+        error: 'Unsupported file type',
+        supportedTypes: ['.docx', '.xlsx', '.doc', '.xls', '.odt', '.ods']
+      });
+    }
+
+    console.log(`Converting file to PDF: ${req.file.originalname} (${ext})`);
+
+    // Convert to PDF using LibreOffice
+    const outputDir = os.tmpdir();
+    const baseName = path.basename(inputPath);
+    tempPdfPath = path.join(outputDir, `${baseName}.pdf`);
+    
+    await new Promise((resolve, reject) => {
+      const libreoffice = spawn('soffice', [
+        '--headless',
+        '--nologo',
+        '--nolockcheck',
+        '--nodefault',
+        '--nofirststartwizard',
+        '--convert-to',
+        'pdf',
+        '--outdir',
+        outputDir,
+        inputPath,
+      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+      let stderr = '';
+      let stdout = '';
+
+      libreoffice.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      libreoffice.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      libreoffice.on('error', (err) => {
+        reject(new Error(`Failed to spawn LibreOffice: ${err.message}`));
+      });
+
+      libreoffice.on('close', (code) => {
+        if (code === 0) {
+          console.log('LibreOffice PDF conversion successful');
+          resolve();
+        } else {
+          reject(new Error(`LibreOffice exited with code ${code}. stderr: ${stderr}, stdout: ${stdout}`));
+        }
+      });
+    });
+
+    // Read the converted PDF
+    const pdfBuffer = await fs.readFile(tempPdfPath);
+
+    console.log(`PDF generated: ${pdfBuffer.length} bytes`);
+
+    // Cleanup
+    await fs.unlink(inputPath).catch(() => {});
+    await fs.unlink(tempPdfPath).catch(() => {});
+
+    // Send PDF as response
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(req.file.originalname, ext)}.pdf"`);
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    console.error('Error converting to PDF:', error);
+    
+    // Cleanup on error
+    try {
+      if (inputPath) await fs.unlink(inputPath).catch(() => {});
+      if (tempPdfPath) await fs.unlink(tempPdfPath).catch(() => {});
+    } catch {}
+
+    res.status(500).json({ 
+      error: 'Failed to convert document to PDF',
+      message: error.message,
+      details: error.stack
+    });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);

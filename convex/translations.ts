@@ -253,10 +253,48 @@ export const approveTranslation = mutation({
       throw new Error("Only admins can approve translations");
     }
 
+    const now = Date.now();
     await ctx.db.patch(args.translationId, {
       status: "approved",
-      updatedAt: Date.now(),
+      approvedAt: now,
+      updatedAt: now,
     });
+
+    return { success: true };
+  },
+});
+
+/**
+ * Delete approved translation (admin only)
+ */
+export const deleteTranslation = mutation({
+  args: {
+    translationId: v.id("translations"),
+    clerkId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Check if admin
+    const admin = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+
+    if (!admin || admin.role !== "admin") {
+      throw new Error("Only admins can delete translations");
+    }
+
+    const translation = await ctx.db.get(args.translationId);
+    if (!translation) {
+      throw new Error("Translation not found");
+    }
+
+    // Only allow deletion of approved translations
+    if (translation.status !== "approved") {
+      throw new Error("Only approved translations can be deleted");
+    }
+
+    // Delete the translation record
+    await ctx.db.delete(args.translationId);
 
     return { success: true };
   },

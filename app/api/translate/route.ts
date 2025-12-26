@@ -12,6 +12,7 @@ import {
   getDefaultDocumentDomain,
   getDefaultTranslationProvider,
   getDomainSystemPrompt,
+  getDomainTerminologyGuidance,
   OPENROUTER_DEFAULT_MODEL,
   isDocumentDomain,
   isTranslationProvider,
@@ -19,7 +20,7 @@ import {
   type TranslationProvider,
 } from '@/lib/translation-providers';
 import { getLanguageName } from '@/lib/languages';
-import { translateTextV3, performOCR } from '@/lib/google-cloud';
+import { translateTextV3, performOCR, getGlossaryNameForDomain, type GlossaryConfig } from '@/lib/google-cloud';
 import {
   DEFAULT_PREPROCESSING_OPTIONS,
   AGGRESSIVE_PREPROCESSING_OPTIONS,
@@ -705,61 +706,61 @@ async function translateImageViaVisionModel(args: {
     `You are translating a document from ${source} to ${target}.`,
     '',
     '## YOUR TASK:',
-    '1. Extract ALL text from the image exactly as it appears',
-    '2. Translate to the target language with PERFECT formatting',
-    '3. Preserve the document\'s natural structure',
+    '1. CAREFULLY examine the image layout and structure',
+    '2. Extract ALL text from the image exactly as it appears',
+    '3. Translate with formatting that MIRRORS the original EXACTLY',
     '',
-    '## CRITICAL: ADAPT TO DOCUMENT TYPE',
+    '## CRITICAL: PRODUCE PROPERLY ALIGNED TABLES',
     '',
-    '### For FORMS/CERTIFICATES (short-form with labeled fields):',
-    '- Each field on its own line: "Label: Value"',
-    '- Blank lines between sections',
-    '- Example:',
-    '  Name: John Smith',
-    '  Date of Birth: May 17, 1981',
-    '  ',
-    '  Issue Date: January 15, 2023',
+    '### TABLE REQUIREMENTS:',
     '',
-    '### For CONTRACTS/LEGAL DOCUMENTS (long-form with clauses):',
-    '- Preserve article/section numbering exactly',
-    '- Keep paragraph indentation and hierarchy',
-    '- Maintain clause structure (1.1, 1.2, etc.)',
-    '- Example:',
-    '  ARTICLE 1: DEFINITIONS',
-    '  ',
-    '  1.1 "Agreement" means this contract...',
-    '  ',
-    '  1.2 "Party" means...',
+    '1. **EXACT MATCH**: Same columns, same rows as original',
     '',
-    '### For TRANSCRIPTS/TABLES:',
-    '- Maintain column alignment',
-    '- Keep course names, grades, credits in rows',
-    '- Preserve semester/year groupings',
+    '2. **ALIGNED COLUMNS**: Each column must have FIXED WIDTH',
+    '   - Pad cells with spaces so columns align vertically',
+    '   - Vertical lines must be continuous from top to bottom',
     '',
-    '### For LETTERS/NARRATIVE TEXT:',
-    '- Preserve paragraph structure',
-    '- Keep greeting, body, closing format',
-    '- Maintain natural text flow',
+    '3. **PROPER TABLE FORMAT**:',
     '',
-    '## FORMATTING RULES (ALL DOCUMENTS):',
+    '```',
+    '| Course Name          | Credits | Grade | Type     | Date       |',
+    '|----------------------|---------|-------|----------|------------|',
+    '| English              | 4       | 72    | Required | 2000-01-13 |',
+    '| Advanced Mathematics | 5       | 67    | Required | 2000-01-13 |',
+    '| Physical Education   | 1       | 74    | Required | 2000-01-13 |',
+    '```',
     '',
-    '1. STRUCTURE: Mirror the source document\'s layout',
-    '2. SPACING: Add blank lines between major sections',
-    '3. LINE BREAKS: Preserve line breaks from the original',
-    '4. DATES: Format as "Month Day, Year" (May 17, 1981)',
-    '5. NUMBERS: Keep reference numbers, IDs exactly as shown',
+    '   Notice: All | characters LINE UP vertically!',
     '',
-    '## DO NOT:',
-    '- Combine unrelated information with semicolons (;)',
-    '- Merge multiple distinct items into one line',
-    '- Remove line breaks that exist in the source',
-    '- Add commentary or explanations',
+    '4. **COLUMN WIDTH RULES**:',
+    '   - Find the LONGEST value in each column',
+    '   - Pad ALL cells in that column to match that width',
+    '   - Use spaces to pad: "English" becomes "English              " if column is 20 chars wide',
+    '',
+    '5. **ROW COUNT**: MUST match original exactly',
+    '   - Count rows in original document',
+    '   - Output SAME number of rows',
+    '',
+    '6. **FOR SIDE-BY-SIDE TABLES**:',
+    '   If original shows LEFT and RIGHT course columns:',
+    '```',
+    '| Course Name (Left)   | Cr | Grade | Type | Date       | Course Name (Right)  | Cr | Grade | Type | Date       |',
+    '|----------------------|----|-------|------|------------|----------------------|----|-------|------|------------|',
+    '| English              | 4  | 72    | Req  | 2000-01-13 | Physics              | 4  | 68    | Req  | 2000-07-06 |',
+    '```',
+    '',
+    '### HEADER INFO (before tables):',
+    'Student ID: XXXXX',
+    'Name: XXXXX',
+    '',
+    '### FOOTER (after tables):',
+    'Total Credits: XXX',
     '',
     '## OUTPUT FORMAT:',
     'Return ONLY a JSON object:',
-    '{"originalText": "extracted text preserving structure", "translatedText": "formatted translation"}',
+    '{"originalText": "extracted text", "translatedText": "translation with ALIGNED tables"}',
     '',
-    'No markdown. No explanations. Just the JSON.',
+    'CRITICAL: Columns must align vertically - all | characters in a column must be directly above/below each other!',
   ].join('\n');
 
   const result = await generateText({
@@ -794,8 +795,27 @@ async function translateImageViaVisionModel(args: {
   clearTimeout(abortTimer);
 
   const raw = String(result.text || '').trim();
+  
+  // Helper to extract JSON from markdown code blocks
+  function extractJSON(text: string): string {
+    // Remove markdown code blocks if present: ```json ... ``` or ``` ... ```
+    let cleaned = text.trim();
+    // Match ```json or ``` at the start
+    const startMatch = cleaned.match(/^```(?:json)?\s*\n?/i);
+    if (startMatch) {
+      cleaned = cleaned.slice(startMatch[0].length);
+    }
+    // Match ``` at the end
+    const endMatch = cleaned.match(/\n?```\s*$/);
+    if (endMatch) {
+      cleaned = cleaned.slice(0, -endMatch[0].length);
+    }
+    return cleaned.trim();
+  }
+  
   try {
-    const obj = JSON.parse(raw) as { originalText?: string; translatedText?: string };
+    const jsonStr = extractJSON(raw);
+    const obj = JSON.parse(jsonStr) as { originalText?: string; translatedText?: string };
     const originalText = String(obj.originalText || '');
     const translatedText = String(obj.translatedText || '');
 
@@ -813,53 +833,45 @@ async function translateImageViaVisionModel(args: {
           system,
           abortSignal: refineAbortController.signal,
           prompt: [
-            `Improve this ${source} to ${target} document translation. Focus on FORMATTING and STRUCTURE.`,
+            `Fix the table formatting in this translation. Make columns ALIGN PROPERLY.`,
             '',
             '## YOUR TASK:',
-            'Review the draft translation and improve formatting while preserving the document\'s natural structure.',
+            'Reformat the table so all columns align vertically.',
             '',
-            '## RULES BY DOCUMENT TYPE:',
+            '## CRITICAL: ALIGNED COLUMNS',
             '',
-            '### For FORMS/CERTIFICATES:',
-            '- Split combined fields into separate lines',
-            '- Use "Label: Value" format',
-            '- If you see "X; Y" (different fields), split into:',
-            '  X',
-            '  Y',
+            'All | characters in a column MUST line up vertically!',
             '',
-            '### For CONTRACTS/LEGAL:',
-            '- Preserve clause numbering (1.1, 1.2, Article 1, etc.)',
-            '- Keep paragraph indentation',
-            '- Maintain hierarchical structure',
+            '### CORRECT FORMAT (columns align):',
+            '```',
+            '| Course Name          | Credits | Grade | Type     | Date       |',
+            '|----------------------|---------|-------|----------|------------|',
+            '| English              | 4       | 72    | Required | 2000-01-13 |',
+            '| Advanced Mathematics | 5       | 67    | Required | 2000-01-13 |',
+            '| Physical Education   | 1       | 74    | Required | 2000-01-13 |',
+            '```',
             '',
-            '### For TRANSCRIPTS/LISTS:',
-            '- Keep tabular alignment',
-            '- Preserve item ordering',
-            '- Maintain groupings (by semester, category, etc.)',
+            '### HOW TO ALIGN:',
+            '1. Find the LONGEST text in each column',
+            '2. Pad ALL cells in that column to match that width',
+            '3. Use spaces for padding',
             '',
-            '### For NARRATIVE TEXT:',
-            '- Keep paragraph breaks',
-            '- Maintain natural text flow',
-            '- Don\'t artificially split sentences',
+            '### WRONG (misaligned - DO NOT DO THIS):',
+            '| Course Name | Credits | Grade |',
+            '|---|---|---|',
+            '| English | 4 | 72 |',
+            '| Advanced Mathematics | 5 | 67 |',
             '',
-            '## GENERAL FORMATTING:',
+            '### RULES:',
+            '- Same number of columns in every row',
+            '- Same number of rows as original',
+            '- Separator dashes must match column width: |----------------------|',
+            '- All | must align vertically through entire table',
             '',
-            '1. ADD SPACING: Blank lines between major sections',
-            '2. DATE FORMAT: "Month Day, Year"',
-            '3. PRESERVE: All information from draft - just improve structure',
-            '4. DO NOT: Add commentary, combine unrelated items',
+            '## Output JSON only:',
+            '{"originalText": "...", "translatedText": "table with ALIGNED columns"}',
             '',
-            '## Important:',
-            '- Identify the document type from context',
-            '- Apply appropriate formatting for that type',
-            '- The output should read naturally and professionally',
-            '',
-            'Output JSON only: {"originalText": "...", "translatedText": "..."}',
-            '',
-            '--- ORIGINAL TEXT ---',
-            originalText,
-            '',
-            '--- DRAFT TRANSLATION (improve formatting) ---',
+            '--- DRAFT TO FIX ---',
             translatedText,
           ].join('\n'),
         });
@@ -867,7 +879,8 @@ async function translateImageViaVisionModel(args: {
         clearTimeout(refineAbortTimer);
 
         const refineRaw = String(refine.text || '').trim();
-        const refineObj = JSON.parse(refineRaw) as { originalText?: string; translatedText?: string };
+        const refineJsonStr = extractJSON(refineRaw);
+        const refineObj = JSON.parse(refineJsonStr) as { originalText?: string; translatedText?: string };
         return {
           originalText: String(refineObj.originalText || originalText),
           translatedText: String(refineObj.translatedText || translatedText),
@@ -878,8 +891,22 @@ async function translateImageViaVisionModel(args: {
     }
 
     return { originalText, translatedText };
-  } catch {
-    // If the model fails to produce JSON, return raw as translated text for visibility.
+  } catch (parseError) {
+    // If the model fails to produce valid JSON, try to extract content manually
+    console.warn('[translateImageViaVisionModel] JSON parse failed, attempting manual extraction:', parseError);
+    
+    // Try to find originalText and translatedText patterns in the raw text
+    const originalMatch = raw.match(/"originalText"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const translatedMatch = raw.match(/"translatedText"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    
+    if (originalMatch || translatedMatch) {
+      return {
+        originalText: originalMatch ? originalMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') : '',
+        translatedText: translatedMatch ? translatedMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') : raw,
+      };
+    }
+    
+    // Last resort: return raw as translated text for visibility
     return { originalText: '', translatedText: raw };
   }
 }
@@ -1023,8 +1050,8 @@ async function translateText(
 
   if (provider === 'google') {
     // Google translation uses `translateTextV3()` which prefers service-account SDK and falls back to API-key REST.
-    // No API key parameter needed; translateTextV3() handles auth automatically (service account or API key).
-    return translateTextGoogle(text, sourceLanguage, targetLanguage);
+    // With v3 SDK, we can use glossaries for domain-specific terminology.
+    return translateTextGoogle(text, sourceLanguage, targetLanguage, options.domain);
   }
 
   if (provider === 'openai') {
@@ -1054,26 +1081,254 @@ async function translateText(
  *
  * Translation v3 benefits:
  * - Neural Machine Translation with improved accuracy
- * - Glossary support for consistent terminology
+ * - Glossary support for consistent terminology (when configured)
  * - Batch translation for large volumes
  * - Better language detection
+ *
+ * Glossary Setup (for domain-specific terms):
+ * 1. Create CSV glossary files with term pairs for each domain
+ * 2. Upload to Google Cloud Storage
+ * 3. Create glossary resources using the createGlossary() function
+ * 4. Glossary names: certificate-official-terms, legal-terms, medical-terms, technical-terms
  */
+/**
+ * Post-process Google Translation output to restore formatting and structure
+ */
+function postProcessGoogleTranslation(originalText: string, translatedText: string): string {
+  const originalLines = originalText.split('\n');
+  const translatedLines = translatedText.split('\n');
+
+  // If line counts don't match, try to restore structure
+  if (originalLines.length !== translatedLines.length) {
+    // Try to restore line breaks by matching patterns
+    return restoreLineBreaks(originalText, translatedText);
+  }
+
+  // Restore table structures
+  let processed = restoreTableStructures(originalLines, translatedLines);
+  
+  // Restore separators and formatting markers
+  processed = restoreFormattingMarkers(originalText, processed);
+
+  return processed;
+}
+
+/**
+ * Restore line breaks by analyzing original structure
+ */
+function restoreLineBreaks(originalText: string, translatedText: string): string {
+  // Split by common separators to preserve structure
+  const originalSections = originalText.split(/\n{2,}/);
+  const translatedSections = translatedText.split(/\n{2,}/);
+  
+  if (originalSections.length === translatedSections.length) {
+    return translatedSections.join('\n\n');
+  }
+
+  // If sections don't match, preserve original line breaks
+  const originalLineCount = originalText.split('\n').length;
+  const translatedWords = translatedText.split(/\s+/);
+  const wordsPerLine = Math.ceil(translatedWords.length / originalLineCount);
+  
+  const restored: string[] = [];
+  for (let i = 0; i < originalLineCount; i++) {
+    const start = i * wordsPerLine;
+    const end = Math.min(start + wordsPerLine, translatedWords.length);
+    restored.push(translatedWords.slice(start, end).join(' '));
+  }
+  
+  return restored.join('\n');
+}
+
+/**
+ * Restore table structures by analyzing pipe characters and alignment
+ */
+function restoreTableStructures(originalLines: string[], translatedLines: string[]): string {
+  const result: string[] = [];
+  
+  for (let i = 0; i < originalLines.length; i++) {
+    const originalLine = originalLines[i];
+    const translatedLine = translatedLines[i] || '';
+    
+    // Check if original line contains table structure
+    if (originalLine.includes('|')) {
+      // Try to restore table structure
+      const restored = restoreTableLine(originalLine, translatedLine);
+      result.push(restored);
+    } else if (originalLine.trim().match(/^[-=]{3,}$/)) {
+      // Preserve separator lines
+      result.push(originalLine);
+    } else {
+      result.push(translatedLine);
+    }
+  }
+  
+  return result.join('\n');
+}
+
+/**
+ * Restore a single table line with proper alignment
+ */
+function restoreTableLine(originalLine: string, translatedLine: string): string {
+  // Extract column structure from original (including empty columns)
+  const originalParts = originalLine.split('|');
+  const originalColumns = originalParts.map(col => col.trim());
+  
+  // Check if this is a separator row (all dashes)
+  if (originalLine.match(/^\s*\|[\s|-]+\|\s*$/)) {
+    // Preserve separator structure
+    const dashCounts = originalColumns.map(col => {
+      if (col.match(/^-+$/)) return col.length;
+      return 0;
+    });
+    
+    // Reconstruct separator with same structure
+    const separatorParts = dashCounts.map(count => count > 0 ? '-'.repeat(Math.max(3, count)) : '');
+    return '| ' + separatorParts.join(' | ') + ' |';
+  }
+  
+  // If translated line doesn't have pipes, try to reconstruct based on original structure
+  if (!translatedLine.includes('|')) {
+    // Try to intelligently split translated text
+    const words = translatedLine.trim().split(/\s+/);
+    
+    // Estimate words per column based on original column lengths
+    const totalOriginalChars = originalColumns.reduce((sum, col) => sum + col.length, 0);
+    const reconstructed: string[] = [];
+    
+    let wordIndex = 0;
+    for (let i = 0; i < originalColumns.length; i++) {
+      if (wordIndex >= words.length) {
+        reconstructed.push('');
+        continue;
+      }
+      
+      // Estimate how many words should go in this column
+      const originalRatio = originalColumns[i].length / Math.max(totalOriginalChars, 1);
+      const wordsForColumn = Math.max(1, Math.ceil(words.length * originalRatio));
+      
+      const columnWords = words.slice(wordIndex, wordIndex + wordsForColumn);
+      reconstructed.push(columnWords.join(' '));
+      wordIndex += wordsForColumn;
+    }
+    
+    // Add any remaining words to last column
+    if (wordIndex < words.length && reconstructed.length > 0) {
+      const remaining = words.slice(wordIndex).join(' ');
+      reconstructed[reconstructed.length - 1] += ' ' + remaining;
+    }
+    
+    // Pad columns to match original widths for better alignment
+    const paddedColumns = reconstructed.map((col, idx) => {
+      const targetWidth = Math.max(originalColumns[idx]?.length || 0, col.length);
+      return col.padEnd(targetWidth);
+    });
+    
+    return '| ' + paddedColumns.join(' | ') + ' |';
+  }
+  
+  // If translated line has pipes, align them properly
+  const translatedParts = translatedLine.split('|');
+  const translatedColumns = translatedParts.map(col => col.trim());
+  
+  // Match column count - pad or truncate as needed
+  const alignedColumns: string[] = [];
+  const maxColumns = Math.max(originalColumns.length, translatedColumns.length);
+  
+  for (let i = 0; i < maxColumns; i++) {
+    const origCol = originalColumns[i] || '';
+    const transCol = translatedColumns[i] || '';
+    
+    // Use translated content but match original width for alignment
+    const targetWidth = Math.max(origCol.length, transCol.length);
+    alignedColumns.push(transCol.padEnd(targetWidth));
+  }
+  
+  // Trim to match original column count
+  const finalColumns = alignedColumns.slice(0, originalColumns.length);
+  
+  return '| ' + finalColumns.join(' | ') + ' |';
+}
+
+/**
+ * Restore formatting markers like separators, dates, numbers
+ */
+function restoreFormattingMarkers(originalText: string, translatedText: string): string {
+  let processed = translatedText;
+  
+  // Restore date patterns (preserve date format)
+  const datePattern = /\d{4}[-年]\d{1,2}[-月]\d{1,2}[日]?/g;
+  const originalDates = originalText.match(datePattern) || [];
+  originalDates.forEach((date, idx) => {
+    // Try to find corresponding date in translated text
+    const translatedDates = processed.match(/\d{4}[-年]\d{1,2}[-月]\d{1,2}[日]?/g) || [];
+    if (translatedDates[idx]) {
+      // Keep original format if possible
+      processed = processed.replace(translatedDates[idx], date);
+    }
+  });
+  
+  // Restore separator lines (dashes, equals, etc.)
+  const separatorPattern = /^[-=]{3,}$/gm;
+  const originalSeparators = originalText.match(separatorPattern) || [];
+  originalSeparators.forEach((sep) => {
+    // Find similar separator in translated text and replace with original
+    const translatedSeparators = processed.match(/^[-=]{3,}$/gm) || [];
+    if (translatedSeparators.length > 0) {
+      processed = processed.replace(translatedSeparators[0], sep);
+    }
+  });
+  
+  // Restore page markers
+  const pagePattern = /(第\s*\d+\s*页\s*\/\s*共\s*\d+\s*页|Page\s*\d+\s*of\s*\d+)/gi;
+  const originalPages = originalText.match(pagePattern) || [];
+  originalPages.forEach((page) => {
+    const translatedPages = processed.match(pagePattern) || [];
+    if (translatedPages.length > 0) {
+      // Keep page numbers from original
+      processed = processed.replace(translatedPages[0], page);
+    }
+  });
+  
+  return processed;
+}
+
 async function translateTextGoogle(
   text: string,
   sourceLanguage: string,
-  targetLanguage: string
+  targetLanguage: string,
+  domain?: DocumentDomain
 ): Promise<string> {
   try {
     // Handle auto-detect: pass undefined to let v3 auto-detect
     const sourceLang = sourceLanguage === 'auto' ? undefined : sourceLanguage;
 
+    // Get glossary config for the domain (if glossary exists)
+    let glossaryConfig: GlossaryConfig | undefined;
+    if (domain && sourceLang) {
+      const glossaryName = getGlossaryNameForDomain(domain);
+      if (glossaryName) {
+        glossaryConfig = {
+          glossaryName,
+          ignoreCase: true,
+        };
+      }
+    }
+
     const [translatedText] = await translateTextV3(
       text,
       targetLanguage,
-      sourceLang
+      sourceLang,
+      'text/plain',
+      glossaryConfig
     );
 
-    return translatedText || text;
+    const rawTranslation = translatedText || text;
+    
+    // Post-process to restore formatting and structure
+    const processed = postProcessGoogleTranslation(text, rawTranslation);
+    
+    return processed;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Translation API error: ${message}`);
@@ -1096,6 +1351,7 @@ async function translateTextOpenAI(
   }
 
   const system = getDomainSystemPrompt(domain);
+  const terminologyGuidance = getDomainTerminologyGuidance(domain);
   const source = getLanguageLabelForPrompt(sourceLanguage);
   const target = getLanguageLabelForPrompt(targetLanguage);
   const model = process.env.OPENAI_TRANSLATION_MODEL || 'gpt-4o';
@@ -1109,22 +1365,28 @@ async function translateTextOpenAI(
     prompt: [
       `Translate from ${source} to ${target}. Follow ALL rules below.`,
       '',
-      '## ABSOLUTE RULES:',
-      '1. ONE FIELD PER LINE - never combine different fields.',
-      '2. NEVER use semicolons (;) to join different pieces of information.',
-      '3. Date of Birth and Enrollment Period are ALWAYS on separate lines.',
+      '## CRITICAL: ALIGNED TABLES',
       '',
-      '## CORRECT:',
-      'Date of Birth: May 17, 1981',
-      'Studied at this institution from September 1999 to July 2003',
+      '**ALL | CHARACTERS MUST ALIGN VERTICALLY!**',
       '',
-      '## WRONG (never do this):',
-      '"Born May 17, 1981; from September 1999 to July 2003"',
+      'CORRECT (columns align):',
+      '| Course Name          | Credits | Grade |',
+      '|----------------------|---------|-------|',
+      '| English              | 4       | 72    |',
+      '| Advanced Mathematics | 5       | 67    |',
       '',
-      '## OTHER RULES:',
-      '- Preserve all line breaks from source',
-      '- Use formal language for official documents',
-      '- Format dates as "Month Day, Year"',
+      'HOW TO ALIGN:',
+      '- Find longest text in each column',
+      '- Pad ALL cells to match that width',
+      '- Separator dashes match column width',
+      '',
+      '## MATCH ORIGINAL:',
+      '- Same column count',
+      '- Same row count',
+      '',
+      '## FOR FORMS:',
+      '- "Label: Value" on separate lines',
+      terminologyGuidance,
       '',
       'Output ONLY the translation.',
       '',
@@ -1147,6 +1409,7 @@ async function translateTextAnthropic(
   }
 
   const system = getDomainSystemPrompt(domain);
+  const terminologyGuidance = getDomainTerminologyGuidance(domain);
   const source = getLanguageLabelForPrompt(sourceLanguage);
   const target = getLanguageLabelForPrompt(targetLanguage);
   // Anthropic model availability depends on your account. We try a small fallback chain when the model isn't found.
@@ -1163,22 +1426,28 @@ async function translateTextAnthropic(
   const prompt = [
     `Translate from ${source} to ${target}. Follow ALL rules below.`,
     '',
-    '## ABSOLUTE RULES:',
-    '1. ONE FIELD PER LINE - never combine different fields.',
-    '2. NEVER use semicolons (;) to join different pieces of information.',
-    '3. Date of Birth and Enrollment Period are ALWAYS on separate lines.',
+    '## CRITICAL: ALIGNED TABLES',
     '',
-    '## CORRECT:',
-    'Date of Birth: May 17, 1981',
-    'Studied at this institution from September 1999 to July 2003',
+    '**ALL | CHARACTERS MUST ALIGN VERTICALLY!**',
     '',
-    '## WRONG (never do this):',
-    '"Born May 17, 1981; from September 1999 to July 2003"',
+    'CORRECT (columns align):',
+    '| Course Name          | Credits | Grade |',
+    '|----------------------|---------|-------|',
+    '| English              | 4       | 72    |',
+    '| Advanced Mathematics | 5       | 67    |',
     '',
-    '## OTHER RULES:',
-    '- Preserve all line breaks from source',
-    '- Use formal language for official documents',
-    '- Format dates as "Month Day, Year"',
+    'HOW TO ALIGN:',
+    '- Find longest text in each column',
+    '- Pad ALL cells to match that width',
+    '- Separator dashes match column width',
+    '',
+    '## MATCH ORIGINAL:',
+    '- Same column count',
+    '- Same row count',
+    '',
+    '## FOR FORMS:',
+    '- "Label: Value" on separate lines',
+    terminologyGuidance,
     '',
     'Output ONLY the translation.',
     '',
@@ -1237,6 +1506,7 @@ async function translateTextOpenRouter(
   }
 
   const system = getDomainSystemPrompt(domain);
+  const terminologyGuidance = getDomainTerminologyGuidance(domain);
   const source = getLanguageLabelForPrompt(sourceLanguage);
   const target = getLanguageLabelForPrompt(targetLanguage);
 
@@ -1270,48 +1540,47 @@ async function translateTextOpenRouter(
     prompt: [
       `Translate from ${source} to ${target}. Professional document translation.`,
       '',
-      '## CRITICAL: PRESERVE DOCUMENT STRUCTURE',
+      '## CRITICAL: PRODUCE PROPERLY ALIGNED TABLES',
       '',
-      'Identify the document type and apply appropriate formatting:',
+      '**ALL | CHARACTERS MUST ALIGN VERTICALLY!**',
       '',
-      '### FORMS/CERTIFICATES (labeled fields):',
-      '- Each field on its own line: "Label: Value"',
-      '- Blank lines between sections',
-      '- Never combine different fields',
+      'CORRECT FORMAT (notice alignment):',
+      '| Course Name          | Credits | Grade | Type     | Date       |',
+      '|----------------------|---------|-------|----------|------------|',
+      '| English              | 4       | 72    | Required | 2000-01-13 |',
+      '| Advanced Mathematics | 5       | 67    | Required | 2000-01-13 |',
+      '| Physical Education   | 1       | 74    | Required | 2000-01-13 |',
       '',
-      '### CONTRACTS/LEGAL (structured clauses):',
-      '- Preserve all numbering (Article 1, 1.1, (a), etc.)',
-      '- Keep paragraph hierarchy and indentation',
-      '- Maintain section breaks',
+      'HOW TO ALIGN:',
+      '1. Find LONGEST text in each column',
+      '2. Pad ALL cells in that column to match that width',
+      '3. Use spaces for padding',
+      '4. Separator dashes (---) must match column width',
       '',
-      '### TRANSCRIPTS/TABLES (columnar data):',
-      '- Keep items aligned and separated',
-      '- Preserve row/column structure',
-      '- Maintain groupings',
+      '## MATCH ORIGINAL:',
+      '- Same number of COLUMNS',
+      '- Same number of ROWS',
+      '- Preserve side-by-side layouts',
       '',
-      '### LETTERS/NARRATIVE (flowing text):',
-      '- Keep paragraph breaks intact',
-      '- Preserve greeting/body/closing structure',
-      '- Maintain natural flow',
+      '## FOR SIDE-BY-SIDE:',
+      '| Left Course          | Cr | Grade | Right Course         | Cr | Grade |',
+      '|----------------------|----|-------|----------------------|----|-------|',
+      '| English              | 4  | 72    | Physics              | 4  | 68    |',
       '',
-      '## FORMATTING RULES (ALL DOCUMENTS):',
+      '## HEADER (before table):',
+      'Student ID: XXXXX',
+      'Name: XXXXX',
       '',
-      '1. SPACING: Add blank lines between major sections',
-      '2. DATES: Use "Month Day, Year" format',
-      '3. NAMES: Use standard romanization',
-      '4. NUMBERS: Preserve reference numbers, IDs exactly',
+      '## FOOTER (after table):',
+      'Total Credits: XXX',
       '',
-      '## DO NOT:',
-      '- Combine unrelated information with semicolons (;)',
-      '- Merge distinct fields into one line',
-      '- Remove existing line breaks',
-      '- Add explanations or notes',
+      '## FOR FORMS:',
+      '- "Label: Value" on separate lines',
+      terminologyGuidance,
       '',
-      '---',
       'Output ONLY the translation.',
       '',
-      'TEXT TO TRANSLATE:',
-      '',
+      'TEXT:',
       text,
     ].join('\n'),
   });

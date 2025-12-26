@@ -16,7 +16,6 @@
     "@clerk/nextjs": "^6.36.2",
     "@google-cloud/translate": "^8.5.0",
     "@google-cloud/vision": "^4.3.2",
-    "sharp": "^0.33.5",
     "@paypal/react-paypal-js": "^8.9.2",
     "ai": "^5.0.115",
     "clsx": "^2.1.1",
@@ -24,12 +23,14 @@
     "date-fns": "^4.1.0",
     "docx": "^9.5.1",
     "exceljs": "^4.4.0",
+    "form-data": "^4.0.5",
     "mammoth": "^1.11.0",
     "next": "^16.0.0",
     "pdf-parse": "^2.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-dropzone": "^14.3.8",
+    "sharp": "^0.33.5",
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {

@@ -231,10 +231,72 @@ export const uploadTranslatedFiles = mutation({
       throw new Error("Order not found");
     }
 
+    // Add translatedAt timestamp to each file
+    const now = Date.now();
+    const translatedFilesWithTimestamp = args.translatedFiles.map((file) => ({
+      ...file,
+      translatedAt: now,
+    }));
+
     // Update order with translated files and mark as completed
     await ctx.db.patch(args.orderId, {
-      translatedFiles: args.translatedFiles,
+      translatedFiles: translatedFilesWithTimestamp,
       status: "completed",
+      updatedAt: now,
+    });
+
+    return { success: true };
+  },
+});
+
+/**
+ * Delete a translated file from an order (admin only)
+ */
+export const deleteTranslatedFile = mutation({
+  args: {
+    orderId: v.id("orders"),
+    fileName: v.string(),
+    clerkId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Check if user is admin
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+
+    if (!user || user.role !== "admin") {
+      throw new Error("Only admins can delete translated files");
+    }
+
+    const order = await ctx.db.get(args.orderId);
+    if (!order) {
+      throw new Error("Order not found");
+    }
+
+    if (!order.translatedFiles || order.translatedFiles.length === 0) {
+      throw new Error("No translated files found");
+    }
+
+    // Filter out the file to delete
+    const updatedTranslatedFiles = order.translatedFiles.filter(
+      (file) => file.fileName !== args.fileName
+    );
+
+    // If storageId exists, delete from storage
+    const fileToDelete = order.translatedFiles.find((f) => f.fileName === args.fileName);
+    if (fileToDelete?.storageId) {
+      try {
+        await ctx.storage.delete(fileToDelete.storageId);
+      } catch (error) {
+        console.error("Failed to delete file from storage:", error);
+        // Continue with database deletion even if storage deletion fails
+      }
+    }
+
+    // Update order with remaining translated files
+    await ctx.db.patch(args.orderId, {
+      translatedFiles: updatedTranslatedFiles.length > 0 ? updatedTranslatedFiles : undefined,
       updatedAt: Date.now(),
     });
 
