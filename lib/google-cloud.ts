@@ -298,8 +298,10 @@ async function translateTextV3Sdk(
 
   // If glossary was used, prefer glossaryTranslation when available
   return response.translations?.map((t) => {
-    if (t.glossaryTranslations?.[0]?.translatedText) {
-      return t.glossaryTranslations[0].translatedText;
+    // Cast to any to handle optional glossaryTranslations property
+    const translation = t as { translatedText?: string | null; glossaryTranslations?: Array<{ translatedText?: string | null }> };
+    if (translation.glossaryTranslations?.[0]?.translatedText) {
+      return translation.glossaryTranslations[0].translatedText;
     }
     return t.translatedText || '';
   }) || contents;

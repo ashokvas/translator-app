@@ -1274,8 +1274,9 @@ function restoreFormattingMarkers(originalText: string, translatedText: string):
   originalSeparators.forEach((sep) => {
     // Find similar separator in translated text and replace with original
     const translatedSeparators = processed.match(/^[-=]{3,}$/gm) || [];
-    if (translatedSeparators.length > 0) {
-      processed = processed.replace(translatedSeparators[0], sep);
+    const firstSep = translatedSeparators[0];
+    if (firstSep) {
+      processed = processed.replace(firstSep, sep);
     }
   });
   
@@ -1284,9 +1285,10 @@ function restoreFormattingMarkers(originalText: string, translatedText: string):
   const originalPages = originalText.match(pagePattern) || [];
   originalPages.forEach((page) => {
     const translatedPages = processed.match(pagePattern) || [];
-    if (translatedPages.length > 0) {
+    const firstPage = translatedPages[0];
+    if (firstPage) {
       // Keep page numbers from original
-      processed = processed.replace(translatedPages[0], page);
+      processed = processed.replace(firstPage, page);
     }
   });
   

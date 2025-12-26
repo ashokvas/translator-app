@@ -62,9 +62,16 @@ function parseMarkdownTable(lines: string[]): { headers: string[]; rows: string[
   const headerLine = lines[0].trim();
   if (!headerLine.startsWith('|') || !headerLine.endsWith('|')) return null;
   
-  // Check if second line is separator (contains |---| pattern)
+  // Check if second line is separator (markdown table separator line)
+  // Using string-based validation to avoid Tailwind CSS parser confusion
   const separatorLine = lines[1].trim();
-  if (!separatorLine.match(/^\|[-:\s|]+\|$/)) return null;
+  if (!separatorLine.startsWith('|') || !separatorLine.endsWith('|')) return null;
+  const separatorContent = separatorLine.slice(1, -1);
+  if (!separatorContent) return null;
+  for (let i = 0; i < separatorContent.length; i++) {
+    const char = separatorContent[i];
+    if (char !== '-' && char !== ':' && char !== ' ' && char !== '|') return null;
+  }
   
   // Parse header
   const headers = headerLine
