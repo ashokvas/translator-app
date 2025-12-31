@@ -193,7 +193,8 @@ export function OrderManagement() {
     try {
       // Update progress to translating
       // Use API subdomain if configured (bypasses Cloudflare 100s timeout limit)
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+      // Temporarily hardcoded - will use env var once confirmed working
+      const apiBase = 'https://api.translatoraxis.com';
       const response = await fetch(`${apiBase}/api/translate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
