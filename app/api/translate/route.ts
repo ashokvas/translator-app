@@ -37,6 +37,34 @@ export const runtime = 'nodejs';
 // See FIX_524_TIMEOUT.md for detailed instructions.
 export const maxDuration = 300; // 5 minutes for translation
 
+// CORS headers for API subdomain
+const corsHeaders = {
+  'Access-Control-Allow-Origin': process.env.NEXT_PUBLIC_SITE_URL || 'https://translatoraxis.com',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Credentials': 'true',
+};
+
+/**
+ * Helper to create JSON response with CORS headers
+ */
+function jsonWithCors(data: any, init?: ResponseInit) {
+  return NextResponse.json(data, {
+    ...init,
+    headers: {
+      ...corsHeaders,
+      ...(init?.headers || {}),
+    },
+  });
+}
+
+/**
+ * Handle OPTIONS preflight request for CORS
+ */
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 200, headers: corsHeaders });
+}
+
 /**
  * POST /api/translate
  * Translates a file using a selectable provider (Google Translate, OpenAI, Anthropic)
@@ -61,13 +89,13 @@ export async function POST(request: NextRequest) {
     const getToken = authResult?.getToken;
 
     if (!userId || !getToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return jsonWithCors({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Verify admin role via Convex
     const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
     if (!convexUrl) {
-      return NextResponse.json({ error: 'Convex not configured' }, { status: 500 });
+      return jsonWithCors({ error: 'Convex not configured' }, { status: 500 });
     }
 
     const convexClient = new ConvexHttpClient(convexUrl);
@@ -76,7 +104,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (userRole?.role !== 'admin') {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+      return jsonWithCors({ error: 'Admin access required' }, { status: 403 });
     }
 
     const body = await request.json();
@@ -95,7 +123,7 @@ export async function POST(request: NextRequest) {
     } = body;
 
     if (!orderId || !fileName || !sourceLanguage || !targetLanguage) {
-      return NextResponse.json(
+      return jsonWithCors(
         { error: 'Missing required fields' },
         { status: 400 }
       );
@@ -120,7 +148,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (!order || !order.files || !order.files[fileIndex]) {
-        return NextResponse.json(
+        return jsonWithCors(
           { error: 'Order or file not found' },
           { status: 404 }
         );
@@ -201,7 +229,7 @@ export async function POST(request: NextRequest) {
           }
         );
       } else {
-        return NextResponse.json(
+        return jsonWithCors(
           { error: `Unsupported file type: ${fileType}` },
           { status: 400 }
         );
@@ -229,7 +257,7 @@ export async function POST(request: NextRequest) {
         clerkId: userId,
       });
 
-      return NextResponse.json({
+      return jsonWithCors({
         success: true,
         segmentsCount: segments.length,
         message: 'Translation completed successfully',
@@ -264,7 +292,7 @@ export async function POST(request: NextRequest) {
         errorMessage = 'OpenRouter is temporarily unavailable. Please wait a moment and try again.';
       }
 
-      return NextResponse.json(
+      return jsonWithCors(
         {
           error: userFriendlyError,
           details: errorMessage,
@@ -274,7 +302,7 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error('Translation API error:', error);
-    return NextResponse.json(
+    return jsonWithCors(
       {
         error: 'Internal server error',
         details: error instanceof Error ? error.message : String(error),
