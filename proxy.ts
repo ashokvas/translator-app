@@ -1,6 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
 
 const isPublicRoute = createRouteMatcher([
   '/',
@@ -13,8 +12,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/generate-translated-document(.*)',
 ]);
 
-export default async function middleware(request: NextRequest) {
-  // Handle OPTIONS (CORS preflight) requests immediately before Clerk
+export default clerkMiddleware(async (auth, request) => {
+  // Handle OPTIONS (CORS preflight) requests immediately before Clerk authentication
   // This prevents Clerk from redirecting OPTIONS requests to sign-in page
   if (request.method === 'OPTIONS') {
     return new NextResponse(null, {
@@ -30,12 +29,10 @@ export default async function middleware(request: NextRequest) {
   }
 
   // Apply Clerk authentication for all other requests
-  return clerkMiddleware(async (auth, req) => {
-    if (!isPublicRoute(req)) {
-      await auth.protect();
-    }
-  })(request);
-}
+  if (!isPublicRoute(request)) {
+    await auth.protect();
+  }
+});
 
 export const config = {
   matcher: [
