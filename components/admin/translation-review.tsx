@@ -198,7 +198,9 @@ export function TranslationReview({
     // Call translation API again - we'll get file details from props or parent component
     try {
       // Call translate API - it will fetch fileUrl/fileType from Convex if not provided
-      const response = await fetch('/api/translate', {
+      // Use API subdomain if configured (bypasses Cloudflare 100s timeout limit)
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+      const response = await fetch(`${apiBase}/api/translate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

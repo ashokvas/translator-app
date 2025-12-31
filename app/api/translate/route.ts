@@ -28,6 +28,13 @@ import {
 } from '@/lib/image-preprocessing';
 
 export const runtime = 'nodejs';
+// Next.js/Vercel function timeout - set to 5 minutes for complex translations
+// IMPORTANT: If behind Cloudflare proxy (free/pro), CF has a 100-second timeout.
+// Options to handle this:
+// 1. Set SKIP_REFINEMENT_PASS=true to reduce translation time
+// 2. Use OPENROUTER_TIMEOUT_MS=90000 to fail before CF timeout
+// 3. Create an API subdomain with DNS-only (gray cloud) to bypass CF proxy
+// See FIX_524_TIMEOUT.md for detailed instructions.
 export const maxDuration = 300; // 5 minutes for translation
 
 /**
@@ -248,7 +255,10 @@ export async function POST(request: NextRequest) {
 
       if (errorMessage.includes('aborted') || errorMessage.includes('AbortError')) {
         userFriendlyError = 'Translation timed out';
-        errorMessage = 'The translation request took too long. This can happen with complex images or when OpenRouter is under heavy load. Please try again, or try using Claude Sonnet 4.5 instead of GPT-5.2.';
+        errorMessage = 'The translation request took too long. This can happen with complex images or when OpenRouter is under heavy load. Try: (1) Use a faster model like GPT-4o or Claude Sonnet 4, (2) Set SKIP_REFINEMENT_PASS=true in environment, (3) Use an API subdomain that bypasses Cloudflare proxy. See FIX_524_TIMEOUT.md for details.';
+      } else if (errorMessage.includes('524') || errorMessage.includes('timeout occurred')) {
+        userFriendlyError = 'Cloudflare timeout';
+        errorMessage = 'Cloudflare terminated the connection (524 error). Translation took longer than 100 seconds. Solutions: (1) Use a faster model, (2) Set SKIP_REFINEMENT_PASS=true, (3) Create an API subdomain with DNS-only to bypass CF proxy. See FIX_524_TIMEOUT.md.';
       } else if (errorMessage.includes('Temporarily unavailable') || errorMessage.includes('503') || errorMessage.includes('502')) {
         userFriendlyError = 'Service temporarily unavailable';
         errorMessage = 'OpenRouter is temporarily unavailable. Please wait a moment and try again.';
@@ -821,7 +831,13 @@ async function translateImageViaVisionModel(args: {
 
     // Optional refinement pass: improves fidelity/formatting without re-reading the image.
     // This mimics how chat apps often do "draft -> revise" internally.
-    if (originalText.trim() && translatedText.trim()) {
+    // 
+    // IMPORTANT: If behind Cloudflare proxy (free/pro), the total request time must be < 100 seconds.
+    // The refinement pass adds ~1-2 minutes. Set SKIP_REFINEMENT_PASS=true to skip it.
+    // Alternatively, use an API subdomain with DNS-only (gray cloud) to bypass CF proxy timeout.
+    const skipRefinement = process.env.SKIP_REFINEMENT_PASS === 'true';
+    
+    if (!skipRefinement && originalText.trim() && translatedText.trim()) {
       try {
         const refineAbortController = new AbortController();
         const refineAbortTimer = setTimeout(() => refineAbortController.abort(), timeoutMs);
