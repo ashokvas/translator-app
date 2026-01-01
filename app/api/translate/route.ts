@@ -1,4 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
+import { verifyToken } from '@clerk/backend';
 import { NextRequest, NextResponse } from 'next/server';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '@/convex/_generated/api';
@@ -83,12 +84,37 @@ export async function OPTIONS() {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Authenticate admin
-    const authResult = await auth();
-    const userId = authResult?.userId;
-    const getToken = authResult?.getToken;
+    // Authenticate admin - supports both cookie-based auth (same domain)
+    // and Bearer token auth (cross-subdomain API calls)
+    let userId: string | null = null;
+    
+    // First, check for Bearer token in Authorization header (cross-subdomain)
+    const authHeader = request.headers.get('Authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '');
+      try {
+        const verifiedToken = await verifyToken(token, {
+          secretKey: process.env.CLERK_SECRET_KEY,
+          authorizedParties: [
+            'https://translatoraxis.com',
+            'https://www.translatoraxis.com',
+            process.env.NEXT_PUBLIC_SITE_URL || '',
+          ].filter(Boolean),
+        });
+        userId = verifiedToken.sub;
+      } catch (tokenError) {
+        console.error('Bearer token verification failed:', tokenError);
+        // Fall through to try cookie-based auth
+      }
+    }
+    
+    // If no Bearer token or verification failed, try cookie-based auth
+    if (!userId) {
+      const authResult = await auth();
+      userId = authResult?.userId ?? null;
+    }
 
-    if (!userId || !getToken) {
+    if (!userId) {
       return jsonWithCors({ error: 'Unauthorized' }, { status: 401 });
     }
 
