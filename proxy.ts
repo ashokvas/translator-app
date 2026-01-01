@@ -10,6 +10,9 @@ const isPublicRoute = createRouteMatcher([
   '/api/health(.*)',
   // Avoid Clerk redirect-to-sign-in for fetch() calls; these route handlers already return JSON 401/403.
   '/api/generate-translated-document(.*)',
+  // Translation API - must be public for cross-subdomain calls (api.translatoraxis.com)
+  // The route handler has its own auth check via auth() and verifies admin role
+  '/api/translate(.*)',
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
