@@ -50,9 +50,9 @@ export function TranslationReview({
   const { getToken } = useAuth();
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
   const [localEdits, setLocalEdits] = useState<Record<string, string>>({});
-  const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('google');
+  const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('openrouter');
   const [documentDomain, setDocumentDomain] = useState<DocumentDomain>('general');
-  const [openRouterModel, setOpenRouterModel] = useState<string>(OPENROUTER_DEFAULT_MODEL);
+  const [openRouterModel, setOpenRouterModel] = useState<string>('openai/gpt-5.2');
   const [ocrQuality, setOcrQuality] = useState<'high' | 'low'>('high');
   const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false);
   const [notice, setNotice] = useState<{ title: string; message: string } | null>(null);

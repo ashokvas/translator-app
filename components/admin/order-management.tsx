@@ -44,9 +44,9 @@ export function OrderManagement() {
   const [translatingFileIndexes, setTranslatingFileIndexes] = useState<Set<number>>(new Set());
   const [reviewingFileIndex, setReviewingFileIndex] = useState<number | null>(null);
   const [translationProgress, setTranslationProgress] = useState<Record<number, number>>({});
-  const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('google');
+  const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('openrouter');
   const [documentDomain, setDocumentDomain] = useState<DocumentDomain>('general');
-  const [openRouterModel, setOpenRouterModel] = useState<string>(OPENROUTER_DEFAULT_MODEL);
+  const [openRouterModel, setOpenRouterModel] = useState<string>('openai/gpt-5.2');
   const [ocrQuality, setOcrQuality] = useState<'high' | 'low'>('high');
   const [notice, setNotice] = useState<NoticeState | null>(null);
   // Approved files selection for combined export
