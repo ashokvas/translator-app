@@ -617,9 +617,10 @@ async function translateScannedPdfWithOcr(
   targetLanguage: string,
   options: TranslationOptions
 ): Promise<Array<{ id: string; originalText: string; translatedText: string; isEdited: boolean; pageNumber?: number; order: number }>> {
-  // Render PDF pages to PNG using pdfjs-dist and @napi-rs/canvas
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  // Render PDF pages to PNG using pdfjs-dist (v3.x) and @napi-rs/canvas
+  // We use the legacy CommonJS build which works in Node.js without workers
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-require-imports
+  const pdfjs: any = require('pdfjs-dist/legacy/build/pdf.js');
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const canvasMod: any = await import('@napi-rs/canvas');
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -636,7 +637,7 @@ async function translateScannedPdfWithOcr(
   // Convert Buffer to Uint8Array for pdfjs
   const uint8Array = new Uint8Array(pdfBuffer);
   // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-  const loadingTask: any = pdfjs.getDocument({ data: uint8Array, disableWorker: true });
+  const loadingTask: any = pdfjs.getDocument({ data: uint8Array, isEvalSupported: false, disableFontFace: true });
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const pdfDoc: any = await loadingTask.promise;
 
