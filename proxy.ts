@@ -1,5 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 const isPublicRoute = createRouteMatcher([
   '/',
@@ -15,9 +15,17 @@ const isPublicRoute = createRouteMatcher([
   '/api/translate(.*)',
 ]);
 
-export default clerkMiddleware(async (auth, request) => {
-  // Handle OPTIONS (CORS preflight) requests immediately before Clerk authentication
-  // This prevents Clerk from redirecting OPTIONS requests to sign-in page
+// Create the Clerk middleware with protected route handling
+const clerkAuth = clerkMiddleware(async (auth, request) => {
+  if (!isPublicRoute(request)) {
+    await auth.protect();
+  }
+});
+
+// Main middleware export - handles OPTIONS BEFORE Clerk to prevent redirect issues
+export default async function middleware(request: NextRequest) {
+  // Handle OPTIONS (CORS preflight) requests FIRST - before any auth
+  // This is critical for cross-origin API calls from api.translatoraxis.com
   if (request.method === 'OPTIONS') {
     return new NextResponse(null, {
       status: 200,
@@ -31,11 +39,9 @@ export default clerkMiddleware(async (auth, request) => {
     });
   }
 
-  // Apply Clerk authentication for all other requests
-  if (!isPublicRoute(request)) {
-    await auth.protect();
-  }
-});
+  // For all other requests, use Clerk authentication
+  return clerkAuth(request, {} as any);
+}
 
 export const config = {
   matcher: [
