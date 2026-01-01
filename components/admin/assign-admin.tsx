@@ -44,7 +44,7 @@ export function AssignAdmin() {
     setIsUpdating(true);
     try {
       // Find user by email (assuming selectedUserId is email)
-      const targetUser = allUsers?.find((u) => u.email === selectedUserId);
+      const targetUser = allUsers?.find((u: any) => u.email === selectedUserId);
       if (targetUser) {
         await updateUserRole({
           userId: targetUser._id,
@@ -82,8 +82,8 @@ export function AssignAdmin() {
           >
             <option value="">Select a user...</option>
             {allUsers
-              ?.filter((u) => u.role === 'user')
-              .map((u) => (
+              ?.filter((u: any) => u.role === 'user')
+              .map((u: any) => (
                 <option key={u._id} value={u.email}>
                   {u.email} {u.name && `(${u.name})`}
                 </option>

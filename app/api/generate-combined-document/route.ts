@@ -262,7 +262,7 @@ export async function POST(request: NextRequest) {
 
     // Filter to only the requested approved translations
     const selectedTranslations = allTranslations.filter(
-      (t) => fileNames.includes(t.fileName) && t.status === 'approved'
+      (t: any) => fileNames.includes(t.fileName) && t.status === 'approved'
     );
 
     if (selectedTranslations.length === 0) {
@@ -273,7 +273,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Sort translations by file name order as provided
-    selectedTranslations.sort((a, b) => {
+    selectedTranslations.sort((a: any, b: any) => {
       return fileNames.indexOf(a.fileName) - fileNames.indexOf(b.fileName);
     });
 
@@ -349,7 +349,7 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    selectedTranslations.forEach((t, idx) => {
+    selectedTranslations.forEach((t: any, idx: number) => {
       blocks.push(
         new Paragraph({
           children: [
@@ -371,7 +371,7 @@ export async function POST(request: NextRequest) {
     );
 
     // Add each translation with page breaks between them
-    selectedTranslations.forEach((translation, docIndex) => {
+    selectedTranslations.forEach((translation: any, docIndex: number) => {
       // Page break before each document (except first)
       if (docIndex > 0) {
         blocks.push(
@@ -403,7 +403,7 @@ export async function POST(request: NextRequest) {
       );
 
       // Sort segments by order
-      const segmentsSorted = [...translation.segments].sort((a, b) => a.order - b.order);
+      const segmentsSorted = [...translation.segments].sort((a: any, b: any) => a.order - b.order);
 
       // Process each segment
       let lastPageNumber: number | undefined;
@@ -494,7 +494,7 @@ export async function POST(request: NextRequest) {
       fileName: combinedFileName,
       fileType: mimeType,
       fileSize: finalBuffer.byteLength,
-      pageCount: selectedTranslations.reduce((sum, t) => sum + t.segments.length, 0),
+      pageCount: selectedTranslations.reduce((sum: number, t: any) => sum + t.segments.length, 0),
     });
 
     // Add to order's translatedFiles

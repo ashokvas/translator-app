@@ -81,9 +81,9 @@ export function OrderManagement() {
   useEffect(() => {
     if (!translations || !orderDetails) return;
 
-    translations.forEach((translation) => {
+    translations.forEach((translation: any) => {
       const fileIndex = orderDetails.files.findIndex(
-        (f) => f.fileName === translation.fileName
+        (f: any) => f.fileName === translation.fileName
       );
       if (fileIndex !== -1) {
         setTranslationProgress((prev) => ({
@@ -144,7 +144,7 @@ export function OrderManagement() {
 
           // Find corresponding original file
           const originalFile =
-            orderDetails?.files.find((f) =>
+            orderDetails?.files.find((f: any) =>
               file.name.toLowerCase().includes(f.fileName.toLowerCase())
             ) || orderDetails?.files[0];
 
@@ -267,8 +267,8 @@ export function OrderManagement() {
 
     // Get files that haven't been translated yet or need retranslation
     const filesToTranslate = orderDetails.files
-      .map((file, index) => ({ file, index }))
-      .filter(({ index }) => !translatingFileIndexes.has(index));
+      .map((file: any, index: number) => ({ file, index }))
+      .filter(({ index }: { index: number }) => !translatingFileIndexes.has(index));
 
     if (filesToTranslate.length === 0) {
       setNotice({ title: 'No files', message: 'All files are already being translated.' });
@@ -281,14 +281,14 @@ export function OrderManagement() {
     });
 
     // Start all translations in parallel
-    await Promise.all(filesToTranslate.map(({ index }) => handleTranslate(index)));
+    await Promise.all(filesToTranslate.map(({ index }: { index: number }) => handleTranslate(index)));
   };
 
   // Handle generating individual document with format selection
   const handleGenerateIndividualDocument = async (fileName: string) => {
     if (!selectedOrder || !user?.id || !translations) return;
 
-    const translation = translations.find((t) => t.fileName === fileName);
+    const translation = translations.find((t: any) => t.fileName === fileName);
     if (!translation) {
       setNotice({ title: 'Error', message: 'Translation not found' });
       return;
@@ -390,7 +390,7 @@ export function OrderManagement() {
   const handleDownloadAllSeparately = async () => {
     if (!translations) return;
 
-    const approvedTranslations = translations.filter((t) => t.status === 'approved');
+    const approvedTranslations = translations.filter((t: any) => t.status === 'approved');
     if (approvedTranslations.length === 0) {
       setNotice({ title: 'No files', message: 'No approved translations to download.' });
       return;
@@ -403,7 +403,7 @@ export function OrderManagement() {
 
     // Generate all documents in parallel
     await Promise.all(
-      approvedTranslations.map((t) => handleGenerateIndividualDocument(t.fileName))
+      approvedTranslations.map((t: any) => handleGenerateIndividualDocument(t.fileName))
     );
   };
 
@@ -779,11 +779,11 @@ export function OrderManagement() {
               )}
             </div>
             <div className="space-y-2">
-              {orderDetails.files.map((file, index) => {
+              {orderDetails.files.map((file: any, index: number) => {
                 const isTranslating = translatingFileIndexes.has(index);
                 const progress = translationProgress[index] || 0;
                 // Handle case where translations query is still loading or failed
-                const translation = translations === undefined ? undefined : translations.find((t) => t.fileName === file.fileName);
+                const translation = translations === undefined ? undefined : translations.find((t: any) => t.fileName === file.fileName);
                 const canTranslate = orderDetails.status !== 'pending';
                 const showReviewButton =
                   canTranslate &&
@@ -861,19 +861,19 @@ export function OrderManagement() {
           </div>
 
           {/* Approved Translations Section */}
-          {translations && translations.filter((t) => t.status === 'approved').length > 0 && (
+          {translations && translations.filter((t: any) => t.status === 'approved').length > 0 && (
             <div className="mb-6 border border-green-200 rounded-lg p-4 bg-green-50">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium text-gray-900">
-                  Approved Translations ({translations.filter((t) => t.status === 'approved').length})
+                  Approved Translations ({translations.filter((t: any) => t.status === 'approved').length})
                 </h4>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       const approvedFileNames = translations
-                        .filter((t) => t.status === 'approved')
-                        .map((t) => t.fileName);
+                        .filter((t: any) => t.status === 'approved')
+                        .map((t: any) => t.fileName);
                       if (selectedForCombine.size === approvedFileNames.length) {
                         setSelectedForCombine(new Set());
                       } else {
@@ -882,7 +882,7 @@ export function OrderManagement() {
                     }}
                     className="text-xs text-blue-600 hover:text-blue-800"
                   >
-                    {selectedForCombine.size === translations.filter((t) => t.status === 'approved').length
+                    {selectedForCombine.size === translations.filter((t: any) => t.status === 'approved').length
                       ? 'Deselect All'
                       : 'Select All'}
                   </button>
@@ -923,8 +923,8 @@ export function OrderManagement() {
               {/* Approved Files List with Checkboxes */}
               <div className="space-y-2 mb-4">
                 {translations
-                  .filter((t) => t.status === 'approved')
-                  .map((translation) => (
+                  .filter((t: any) => t.status === 'approved')
+                  .map((translation: any) => (
                     <div
                       key={translation._id}
                       className="flex items-center justify-between p-3 bg-white rounded-lg border border-green-100"
@@ -998,7 +998,7 @@ export function OrderManagement() {
                 <Button
                   variant="outline"
                   onClick={handleDownloadAllSeparately}
-                  disabled={isGeneratingCombined || translations.filter((t) => t.status === 'approved').length === 0}
+                  disabled={isGeneratingCombined || translations.filter((t: any) => t.status === 'approved').length === 0}
                 >
                   Download All Separately
                 </Button>
@@ -1011,7 +1011,7 @@ export function OrderManagement() {
             <div className="mb-6">
               <h4 className="font-medium text-gray-900 mb-2">Translated Files:</h4>
               <div className="space-y-2">
-                {orderDetails.translatedFiles.map((file, index) => (
+                {orderDetails.translatedFiles.map((file: any, index: number) => (
                   <div
                     key={index}
                     className="flex items-center justify-between p-3 bg-green-50 rounded-lg"

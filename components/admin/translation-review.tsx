@@ -75,7 +75,7 @@ export function TranslationReview({
   useEffect(() => {
     if (translation?.segments) {
       const edits: Record<string, string> = {};
-      translation.segments.forEach((seg) => {
+      translation.segments.forEach((seg: any) => {
         edits[seg.id] = seg.translatedText;
       });
       setLocalEdits(edits);
@@ -281,7 +281,7 @@ export function TranslationReview({
 
   const isApproved = translation.status === 'approved';
   const isReviewing = translation.status === 'review';
-  const editedCount = translation.segments.filter((s) => s.isEdited).length;
+  const editedCount = translation.segments.filter((s: any) => s.isEdited).length;
 
   return (
     <div className="space-y-6">
@@ -352,7 +352,7 @@ export function TranslationReview({
       {/* Translation Segments */}
       {translation.segments.length > 0 && (
         <div className="space-y-4">
-          {translation.segments.map((segment, index) => {
+          {translation.segments.map((segment: any, index: number) => {
             const isEditing = editingSegmentId === segment.id;
             const editedText = localEdits[segment.id] || segment.translatedText;
             const hasChanges = editedText !== segment.translatedText;

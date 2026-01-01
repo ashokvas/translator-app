@@ -164,7 +164,7 @@ export function AdminOrderForm() {
       });
 
       // Send order created email to client
-      const clientUser = allUsers?.find((u) => u.clerkId === selectedClientId);
+      const clientUser = allUsers?.find((u: any) => u.clerkId === selectedClientId);
       const clientEmail = clientUser?.email;
       await fetch('/api/send-order-confirmation', {
         method: 'POST',
@@ -230,8 +230,8 @@ export function AdminOrderForm() {
                 >
                   <option value="">-- Select a client --</option>
                   {allUsers
-                    ?.filter((u) => u.role === 'user') // Only show regular users, not admins
-                    .map((client) => (
+                    ?.filter((u: any) => u.role === 'user') // Only show regular users, not admins
+                    .map((client: any) => (
                       <option key={client.clerkId} value={client.clerkId}>
                         {client.name || client.email} {client.email && client.name ? `(${client.email})` : ''}
                       </option>
@@ -241,8 +241,8 @@ export function AdminOrderForm() {
                   <p className="mt-2 text-sm text-gray-600">
                     Order will be created for:{' '}
                     <strong>
-                      {allUsers?.find((u) => u.clerkId === selectedClientId)?.name ||
-                        allUsers?.find((u) => u.clerkId === selectedClientId)?.email ||
+                      {allUsers?.find((u: any) => u.clerkId === selectedClientId)?.name ||
+                        allUsers?.find((u: any) => u.clerkId === selectedClientId)?.email ||
                         'Selected client'}
                     </strong>
                   </p>

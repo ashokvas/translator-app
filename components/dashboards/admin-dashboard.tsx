@@ -165,13 +165,13 @@ export function AdminDashboard() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-sm font-medium text-gray-500">Admins</h3>
                 <p className="mt-2 text-3xl font-bold text-gray-900">
-                  {allUsers ? allUsers.filter((u) => u.role === 'admin').length : '...'}
+                  {allUsers ? allUsers.filter((u: any) => u.role === 'admin').length : '...'}
                 </p>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-sm font-medium text-gray-500">Regular Users</h3>
                 <p className="mt-2 text-3xl font-bold text-gray-900">
-                  {allUsers ? allUsers.filter((u) => u.role === 'user').length : '...'}
+                  {allUsers ? allUsers.filter((u: any) => u.role === 'user').length : '...'}
                 </p>
               </div>
             </div>
@@ -206,7 +206,7 @@ export function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {allUsers?.map((dbUser) => {
+                    {allUsers?.map((dbUser: any) => {
                       const isEditing = editingUserId === dbUser._id;
                       const isUpdating = updatingUserId === dbUser._id;
 

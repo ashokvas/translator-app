@@ -94,7 +94,7 @@ export function OrderDetails({ orderId }: { orderId: string }) {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Uploaded Files</h2>
           <div className="space-y-3">
-            {order.files.map((file, idx) => (
+            {order.files.map((file: any, idx: number) => (
               <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <div>
                   <div className="text-sm font-medium text-gray-900">{file.fileName}</div>

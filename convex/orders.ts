@@ -1,6 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation, internalAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 
 /**
  * Create a new order
@@ -373,9 +372,9 @@ export const getOrderWithFiles = query({
 });
 
 /**
- * Update order reminder tracking
+ * Update order reminder tracking (internal - called by cron)
  */
-export const updateOrderReminder = mutation({
+export const updateOrderReminder = internalMutation({
   args: {
     orderId: v.id("orders"),
     reminderCount: v.number(),
@@ -392,9 +391,9 @@ export const updateOrderReminder = mutation({
 });
 
 /**
- * Mark final notice as sent
+ * Mark final notice as sent (internal - called by cron)
  */
-export const markFinalNoticeSent = mutation({
+export const markFinalNoticeSent = internalMutation({
   args: {
     orderId: v.id("orders"),
   },
@@ -409,9 +408,9 @@ export const markFinalNoticeSent = mutation({
 });
 
 /**
- * Get pending orders that need payment reminders
+ * Get pending orders that need payment reminders (internal - called by cron)
  */
-export const getPendingOrdersForReminders = query({
+export const getPendingOrdersForReminders = internalQuery({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
@@ -461,86 +460,4 @@ export const getPendingOrdersForReminders = query({
   },
 });
 
-/**
- * Internal action to process payment reminders (called by cron)
- */
-export const processPaymentReminders = internalAction({
-  args: {},
-  handler: async (ctx) => {
-    // Get orders needing reminders
-    const orders = await ctx.runQuery(internal.orders.getPendingOrdersForReminders);
-
-    console.log(`Processing ${orders.length} orders for payment reminders`);
-
-    let successCount = 0;
-    let errorCount = 0;
-
-    for (const order of orders) {
-      try {
-        if (!order.userEmail) {
-          console.error(`Order ${order.orderNumber} has no user email, skipping`);
-          errorCount++;
-          continue;
-        }
-
-        const reminderCount = (order.reminderCount || 0) + 1;
-        const isFinalNotice = reminderCount > 3;
-
-        // Determine email kind
-        const emailKind = isFinalNotice ? 'final_notice' : 'payment_reminder';
-
-        // Call the email API
-        const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/send-order-confirmation`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            kind: emailKind,
-            orderId: order._id,
-            orderNumber: order.orderNumber,
-            email: order.userEmail,
-            amount: order.amount,
-            totalPages: order.totalPages,
-            fileCount: order.files.length,
-            sourceLanguage: order.sourceLanguage,
-            targetLanguage: order.targetLanguage,
-            reminderNumber: isFinalNotice ? undefined : reminderCount,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Email API returned ${response.status}`);
-        }
-
-        // Update order tracking
-        if (isFinalNotice) {
-          await ctx.runMutation(internal.orders.markFinalNoticeSent, {
-            orderId: order._id,
-          });
-          console.log(`Final notice sent for order ${order.orderNumber}`);
-        } else {
-          await ctx.runMutation(internal.orders.updateOrderReminder, {
-            orderId: order._id,
-            reminderCount,
-          });
-          console.log(`Reminder ${reminderCount} sent for order ${order.orderNumber}`);
-        }
-
-        successCount++;
-      } catch (error) {
-        console.error(`Failed to process reminder for order ${order.orderNumber}:`, error);
-        errorCount++;
-      }
-    }
-
-    console.log(`Payment reminders processed: ${successCount} success, ${errorCount} errors`);
-
-    return {
-      totalProcessed: orders.length,
-      successCount,
-      errorCount,
-    };
-  },
-});
 

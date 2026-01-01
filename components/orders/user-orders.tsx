@@ -83,7 +83,7 @@ export function UserOrders() {
                     </td>
                   </tr>
                 ) : (
-                  orders.map((order) => (
+                  orders.map((order: any) => (
                     <tr key={order._id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {format(new Date(order.createdAt), 'MMM d, yyyy')}

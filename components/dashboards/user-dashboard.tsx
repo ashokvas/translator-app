@@ -132,7 +132,7 @@ export function UserDashboard() {
                   <span className="font-medium">Pending Orders:</span>{' '}
                   {orders === undefined
                     ? '...'
-                    : orders?.filter((o) => o.status === 'pending' || o.status === 'paid').length || 0}
+                    : orders?.filter((o: any) => o.status === 'pending' || o.status === 'paid').length || 0}
                 </p>
               </div>
             </div>
@@ -198,7 +198,7 @@ export function UserDashboard() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {orders.map((order) => (
+                    {orders.map((order: any) => (
                       <tr key={order._id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {order.orderNumber}

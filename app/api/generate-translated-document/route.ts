@@ -334,7 +334,7 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    const segmentsSorted = translation.segments.sort((a, b) => a.order - b.order);
+    const segmentsSorted = translation.segments.sort((a: any, b: any) => a.order - b.order);
 
     // Process each segment
     let lastPageNumber: number | undefined;
