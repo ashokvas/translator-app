@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import { useUser } from '@clerk/nextjs';
+import { useUser, useAuth } from '@clerk/nextjs';
 import { format } from 'date-fns';
 import { getLanguageName } from '@/lib/languages';
 import { Id } from '@/convex/_generated/dataModel';
@@ -32,6 +32,7 @@ type OrderWithUser = Doc<'orders'> & {
 
 export function OrderManagement() {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const orders = useQuery(
     api.orders.getAllOrders,
     user?.id ? { clerkId: user.id } : 'skip'
@@ -193,11 +194,15 @@ export function OrderManagement() {
     try {
       // Update progress to translating
       // Use API subdomain if configured (bypasses Cloudflare 100s timeout limit)
-      // Temporarily hardcoded - will use env var once confirmed working
       const apiBase = 'https://api.translatoraxis.com';
+      // Get auth token to pass to API subdomain (cookies aren't shared between subdomains)
+      const token = await getToken();
       const response = await fetch(`${apiBase}/api/translate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           orderId: selectedOrder,
           fileName: file.fileName,

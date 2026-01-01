@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import { useUser } from '@clerk/nextjs';
+import { useUser, useAuth } from '@clerk/nextjs';
 import { Id } from '@/convex/_generated/dataModel';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +47,7 @@ export function TranslationReview({
   onApprove,
 }: TranslationReviewProps) {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
   const [localEdits, setLocalEdits] = useState<Record<string, string>>({});
   const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('google');
@@ -199,11 +200,15 @@ export function TranslationReview({
     try {
       // Call translate API - it will fetch fileUrl/fileType from Convex if not provided
       // Use API subdomain if configured (bypasses Cloudflare 100s timeout limit)
-      // Temporarily hardcoded - will use env var once confirmed working
       const apiBase = 'https://api.translatoraxis.com';
+      // Get auth token to pass to API subdomain (cookies aren't shared between subdomains)
+      const token = await getToken();
       const response = await fetch(`${apiBase}/api/translate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           orderId,
           fileName,
