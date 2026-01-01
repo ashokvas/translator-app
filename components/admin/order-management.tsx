@@ -193,8 +193,10 @@ export function OrderManagement() {
 
     try {
       // Update progress to translating
-      // Use API subdomain if configured (bypasses Cloudflare 100s timeout limit)
-      const apiBase = 'https://api.translatoraxis.com';
+      // Use API subdomain in production (bypasses Cloudflare 100s timeout limit)
+      // Use local server in development
+      const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+      const apiBase = isDev ? '' : 'https://api.translatoraxis.com';
       // Get auth token to pass to API subdomain (cookies aren't shared between subdomains)
       const token = await getToken();
       const response = await fetch(`${apiBase}/api/translate`, {

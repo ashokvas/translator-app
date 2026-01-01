@@ -36,7 +36,7 @@ In Coolify, go to your deployment → **Configuration** → **Environment Variab
 
 **Optional but recommended:**
 - `GOOGLE_CLOUD_API_KEY` - Alternative to service account
-- `NEXT_PUBLIC_APP_URL` - Your app URL (e.g., `https://translator.clickbric.com`)
+- `NEXT_PUBLIC_APP_URL` - Your app URL (e.g., `https://translatoraxis.com`)
 
 ### Step 3: Check Port Configuration
 
@@ -73,12 +73,12 @@ Expected response:
 
 ### Step 6: Verify DNS Configuration
 
-1. Ensure your subdomain (`translator.clickbric.com`) has an **A record** pointing to your VPS IP
+1. Ensure your domain (`translatoraxis.com`) has an **A record** pointing to your VPS IP
 2. Check DNS propagation:
    ```bash
-   dig translator.clickbric.com
+   dig translatoraxis.com
    # or
-   nslookup translator.clickbric.com
+   nslookup translatoraxis.com
    ```
 
 ### Step 7: Check Traefik Configuration (Coolify)
