@@ -22,33 +22,19 @@ const ALLOWED_MIME_TYPES = new Set<string>([
 ]);
 
 async function countPdfPages(buffer: Buffer, fileName: string): Promise<number> {
-  // Primary: pdf-parse v2+ API (PDFParse class). This is reliable for compressed PDFs.
+  // Primary: pdf-parse v1.x API
   try {
-    // pdf-parse@2.x exports a PDFParse class (ESM).
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const pdfParseMod: any = await import('pdf-parse');
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const PDFParseCtor: any = pdfParseMod?.PDFParse;
-
-    if (typeof PDFParseCtor === 'function') {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-      const parser: any = new PDFParseCtor({ data: buffer });
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-      const info: any = await parser.getInfo();
-      const n = Number(info?.total);
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-        await parser.destroy();
-      } catch {
-        // ignore
-      }
-      if (Number.isFinite(n) && n > 0) {
-        console.log(`[countPdfPages] ${fileName}: ${n} pages (PDFParse.getInfo)`);
-        return n;
-      }
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-require-imports
+    const pdfParse: any = require('pdf-parse');
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+    const data: any = await pdfParse(buffer);
+    const n = Number(data?.numpages);
+    if (Number.isFinite(n) && n > 0) {
+      console.log(`[countPdfPages] ${fileName}: ${n} pages (pdf-parse)`);
+      return n;
     }
   } catch (err) {
-    console.warn(`[countPdfPages] pdf-parse (PDFParse) failed for ${fileName}:`, err);
+    console.warn(`[countPdfPages] pdf-parse failed for ${fileName}:`, err);
   }
 
   // Fallback 1: /Pages tree /Count (works for some uncompressed PDFs)
@@ -131,43 +117,21 @@ async function convertToPdfWithLibreOffice(inputPath: string, outDir: string): P
 
 async function checkLastPageIsBlank(pdfBuffer: Buffer): Promise<boolean> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const pdfParseMod: any = await import('pdf-parse');
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const PDFParseCtor: any = pdfParseMod?.PDFParse;
-
-    if (typeof PDFParseCtor === 'function') {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-      const parser: any = new PDFParseCtor({ data: pdfBuffer });
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-        const info: any = await parser.getInfo();
-        const totalPages = Number(info?.total);
-        
-        if (totalPages > 1 && Number.isFinite(totalPages)) {
-          // Try to get text from the last page only
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-          const textResult: any = await parser.getText({ partial: [totalPages] });
-          const lastPageText = textResult?.text || '';
-          const trimmedText = lastPageText.trim();
-          
-          // If last page has very little content (< 50 chars), consider it blank
-          const isBlank = trimmedText.length < 50;
-          
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-          await parser.destroy();
-          
-          return isBlank;
-        }
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-        await parser.destroy();
-      } catch {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-          await parser.destroy();
-        } catch {
-          // ignore
-        }
+    // pdf-parse v1.x - extracts all text, check if document ends with sparse content
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-require-imports
+    const pdfParse: any = require('pdf-parse');
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+    const data: any = await pdfParse(pdfBuffer);
+    const totalPages = Number(data?.numpages);
+    const fullText = String(data?.text || '');
+    
+    if (totalPages > 1 && Number.isFinite(totalPages)) {
+      // Split by form feed to get pages, check last section
+      const pages = fullText.split(/\f/);
+      if (pages.length > 1) {
+        const lastPage = pages[pages.length - 1].trim();
+        // If last section has very little content (< 50 chars), consider it blank
+        return lastPage.length < 50;
       }
     }
   } catch {

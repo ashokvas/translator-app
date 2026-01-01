@@ -493,21 +493,14 @@ async function translatePDF(
   const pdfResponse = await fetch(pdfUrl);
   const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
 
-  // Extract text from PDF using pdf-parse
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const pdfParseMod: any = await import('pdf-parse');
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const PDFParseCtor: any = pdfParseMod?.PDFParse;
-
-  if (typeof PDFParseCtor !== 'function') {
-    throw new Error('PDF parsing not available');
-  }
-
+  // Extract text from PDF using pdf-parse v1.x
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-require-imports
+  const pdfParse: any = require('pdf-parse');
+  
   // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-  const parser: any = new PDFParseCtor({ data: pdfBuffer });
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-  const info: any = await parser.getInfo();
-  const totalPages = Number(info?.total) || 1;
+  const pdfData: any = await pdfParse(pdfBuffer);
+  const totalPages = Number(pdfData?.numpages) || 1;
+  const fullText = String(pdfData?.text || "").trim();
 
   const segments: Array<{
     id: string;
@@ -518,52 +511,41 @@ async function translatePDF(
     order: number;
   }> = [];
 
-  function stripPdfParsePageSeparators(text: string) {
-    // pdf-parse often injects page separators like: "-- 1 of 7 --"
-    return text.replace(/--\s*\d+\s*of\s*\d+\s*--/gi, "").trim();
+  // pdf-parse v1.x extracts all text at once, split by form feeds or estimate pages
+  // Split by form feed character (page break) if present
+  let pageTexts = fullText.split(/\f/).filter(t => t.trim().length > 5);
+  
+  // If no form feeds, treat as single document
+  if (pageTexts.length === 0 && fullText.length > 5) {
+    pageTexts = [fullText];
   }
 
-  // Extract text from each page
-  for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-      const textResult: any = await parser.getText({ partial: [pageNum] });
-      const pageTextRaw = String(textResult?.text || "").trim();
-      const pageText = stripPdfParsePageSeparators(pageTextRaw);
+  // Translate each page/section
+  for (let i = 0; i < pageTexts.length; i++) {
+    const pageText = pageTexts[i].trim();
+    const pageNum = i + 1;
 
-      // Skip pages with no extractable text (common for scanned PDFs).
-      if (pageText.length < 5) continue;
+    // Skip pages with no extractable text
+    if (pageText.length < 5) continue;
 
-      // Translate in chunks to avoid v2 API size limits (~5k chars).
-      const chunks = chunkTextForTranslation(pageText, 4000);
-      const translatedChunks: string[] = [];
-      for (const chunk of chunks) {
-        // translateText already handles auto-detect source language.
-        // eslint-disable-next-line no-await-in-loop
-        const translatedChunk = await translateText(chunk, sourceLanguage, targetLanguage, options);
-        translatedChunks.push(translatedChunk);
-      }
-      const translatedText = translatedChunks.join("\n");
-
-        segments.push({
-          id: `pdf-page-${pageNum}-${Date.now()}`,
-          originalText: pageText,
-          translatedText,
-          isEdited: false,
-          pageNumber: pageNum,
-          order: pageNum - 1,
-        });
-    } catch (err) {
-      console.warn(`Failed to extract text from page ${pageNum}:`, err);
+    // Translate in chunks to avoid API size limits (~5k chars).
+    const chunks = chunkTextForTranslation(pageText, 4000);
+    const translatedChunks: string[] = [];
+    for (const chunk of chunks) {
+      // eslint-disable-next-line no-await-in-loop
+      const translatedChunk = await translateText(chunk, sourceLanguage, targetLanguage, options);
+      translatedChunks.push(translatedChunk);
     }
-  }
+    const translatedText = translatedChunks.join("\n");
 
-  // Cleanup
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    await parser.destroy();
-  } catch {
-    // ignore
+    segments.push({
+      id: `pdf-page-${pageNum}-${Date.now()}`,
+      originalText: pageText,
+      translatedText,
+      isEdited: false,
+      pageNumber: pageNum,
+      order: pageNum - 1,
+    });
   }
 
   if (segments.length === 0) {
