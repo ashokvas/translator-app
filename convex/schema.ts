@@ -56,6 +56,9 @@ export default defineSchema({
     paymentId: v.optional(v.string()), // PayPal transaction ID
     paymentStatus: v.optional(v.string()), // PayPal payment status
     estimatedDeliveryDate: v.optional(v.number()), // Timestamp
+    reminderCount: v.optional(v.number()), // Number of payment reminders sent (0-3)
+    lastReminderSentAt: v.optional(v.number()), // Timestamp of last reminder
+    finalNoticeSentAt: v.optional(v.number()), // Timestamp when final notice was sent
     createdAt: v.number(),
     updatedAt: v.number(),
   })

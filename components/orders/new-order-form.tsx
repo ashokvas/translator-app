@@ -113,16 +113,21 @@ export function NewOrderForm() {
 
       setCreatedOrder({ orderId: result.orderId, orderNumber: result.orderNumber });
 
-      // Notify user that payment is required (email stub for now)
+      // Send order created email
       await fetch('/api/send-order-confirmation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          kind: 'payment_required',
+          kind: 'order_created',
           orderId: result.orderId,
           orderNumber: result.orderNumber,
           amount: totalAmount,
+          totalPages,
+          fileCount: uploadedFiles.length,
+          sourceLanguage,
+          targetLanguage,
           email: user.emailAddresses[0]?.emailAddress,
+          customerName: user.fullName || user.firstName || undefined,
         }),
       });
     } catch (error) {

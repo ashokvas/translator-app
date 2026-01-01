@@ -163,17 +163,23 @@ export function AdminOrderForm() {
         ocrQuality,
       });
 
-      // Notify client payment is required (email stub for now)
-      const clientEmail = allUsers?.find((u) => u.clerkId === selectedClientId)?.email;
+      // Send order created email to client
+      const clientUser = allUsers?.find((u) => u.clerkId === selectedClientId);
+      const clientEmail = clientUser?.email;
       await fetch('/api/send-order-confirmation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          kind: 'payment_required',
+          kind: 'order_created',
           orderId: result.orderId,
           orderNumber: result.orderNumber,
           amount: totalAmount,
+          totalPages,
+          fileCount: uploadedFiles.length,
+          sourceLanguage,
+          targetLanguage,
           email: clientEmail,
+          customerName: clientUser?.name || undefined,
         }),
       });
 

@@ -138,15 +138,25 @@ export function PayPalButton({
           });
         }
 
-        // Send confirmation email (via API route)
+        // Send payment confirmed email (via API route)
+        // Note: In production, fetch full order details to include in email
         await fetch('/api/send-order-confirmation', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
+            kind: 'payment_confirmed',
             orderId: finalOrderId,
+            orderNumber: 'ORDER-' + finalOrderId.slice(-8).toUpperCase(), // Temporary, should fetch from order
             email: user.emailAddresses[0]?.emailAddress,
+            customerName: user.fullName || user.firstName || undefined,
+            amount: amount,
+            totalPages: totalPages || 0,
+            fileCount: files?.length || 0,
+            sourceLanguage: sourceLanguage || 'en',
+            targetLanguage: targetLanguage || 'es',
+            estimatedDeliveryDate: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days from now
           }),
         });
 

@@ -1,57 +1,89 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
+import { sendEmail } from '@/lib/email';
+import { getEmailTemplate, type EmailKind } from '@/lib/email-templates';
 
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication (allow internal cron calls without auth)
     const { userId } = await auth();
+    const isCronCall = request.headers.get('x-cron-call') === 'true';
 
-    if (!userId) {
+    if (!userId && !isCronCall) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { orderId, email, kind, orderNumber, amount } = await request.json();
-
-    const emailKind: 'paid_confirmation' | 'payment_required' =
-      kind === 'payment_required' ? 'payment_required' : 'paid_confirmation';
-
-    const subject =
-      emailKind === 'payment_required'
-        ? 'Payment Required - Translation Order'
-        : 'Translation Order Confirmation';
-
-    const message =
-      emailKind === 'payment_required'
-        ? `Your translation order${orderNumber ? ` (${orderNumber})` : ''} has been created. Payment is required to begin processing.${
-            typeof amount === 'number' ? ` Amount due: $${amount.toFixed(2)}.` : ''
-          } Please sign in to your dashboard to complete payment.`
-        : `Your order ${orderId} has been confirmed. Estimated delivery: 7 days.`;
-
-    // In production, use an email service (SendGrid, Resend, etc.)
-    // For now, log the email details
-    console.log('Order confirmation email:', {
-      to: email,
+    const body = await request.json();
+    const {
+      kind,
+      email,
       orderId,
       orderNumber,
       amount,
-      kind: emailKind,
-      subject,
-      message,
+      totalPages,
+      fileCount,
+      sourceLanguage,
+      targetLanguage,
+      estimatedDeliveryDate,
+      reminderNumber,
+      customerName,
+    } = body;
+
+    // Validate required fields
+    if (!kind || !email || !orderId || !orderNumber) {
+      return NextResponse.json(
+        { error: 'Missing required fields: kind, email, orderId, orderNumber' },
+        { status: 400 }
+      );
+    }
+
+    // Validate email kind
+    const validKinds: EmailKind[] = ['order_created', 'payment_reminder', 'final_notice', 'payment_confirmed'];
+    if (!validKinds.includes(kind as EmailKind)) {
+      return NextResponse.json(
+        { error: `Invalid email kind. Must be one of: ${validKinds.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    // Get email template
+    const { subject, html } = getEmailTemplate(kind as EmailKind, {
+      orderNumber,
+      amount: amount || 0,
+      totalPages: totalPages || 0,
+      fileCount: fileCount || 0,
+      sourceLanguage: sourceLanguage || 'en',
+      targetLanguage: targetLanguage || 'es',
+      estimatedDeliveryDate,
+      reminderNumber,
+      customerName,
+      orderId,
     });
 
-    // TODO: Integrate with email service
-    // Example with Resend:
-    // await resend.emails.send({
-    //   from: 'orders@yourdomain.com',
-    //   to: email,
-    //   subject: 'Translation Order Confirmation',
-    //   html: `<h1>Order Confirmed</h1><p>Your order ${orderId}...</p>`,
-    // });
+    // Send email
+    await sendEmail({
+      to: email,
+      subject,
+      html,
+    });
 
-    return NextResponse.json({ success: true });
+    console.log(`Email sent successfully: ${kind} for order ${orderNumber} to ${email}`);
+
+    return NextResponse.json({ 
+      success: true,
+      message: `${kind} email sent successfully`,
+    });
   } catch (error) {
     console.error('Email send error:', error);
+    
+    // Return more detailed error for debugging
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
     return NextResponse.json(
-      { error: 'Failed to send email' },
+      { 
+        error: 'Failed to send email',
+        details: errorMessage,
+      },
       { status: 500 }
     );
   }

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 /**
  * Create a new order
@@ -367,6 +368,178 @@ export const getOrderWithFiles = query({
       ...order,
       files: filesWithUrls,
       translatedFiles: translatedFilesWithUrls,
+    };
+  },
+});
+
+/**
+ * Update order reminder tracking
+ */
+export const updateOrderReminder = mutation({
+  args: {
+    orderId: v.id("orders"),
+    reminderCount: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.orderId, {
+      reminderCount: args.reminderCount,
+      lastReminderSentAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+/**
+ * Mark final notice as sent
+ */
+export const markFinalNoticeSent = mutation({
+  args: {
+    orderId: v.id("orders"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.orderId, {
+      finalNoticeSentAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+/**
+ * Get pending orders that need payment reminders
+ */
+export const getPendingOrdersForReminders = query({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const twoDaysInMs = 2 * 24 * 60 * 60 * 1000;
+
+    // Get all pending orders
+    const pendingOrders = await ctx.db
+      .query("orders")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .collect();
+
+    // Filter orders that need action
+    const ordersNeedingAction = pendingOrders.filter((order) => {
+      // Skip if final notice already sent
+      if (order.finalNoticeSentAt) {
+        return false;
+      }
+
+      const reminderCount = order.reminderCount || 0;
+      const lastReminderSentAt = order.lastReminderSentAt || order.createdAt;
+
+      // Check if 2 days have passed since last action
+      const daysSinceLastAction = now - lastReminderSentAt;
+      const shouldSendReminder = daysSinceLastAction >= twoDaysInMs;
+
+      // Only send up to 3 reminders, then final notice
+      return shouldSendReminder && reminderCount <= 3;
+    });
+
+    // Enrich with user information
+    const ordersWithUsers = await Promise.all(
+      ordersNeedingAction.map(async (order) => {
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_clerk_id", (q) => q.eq("clerkId", order.clerkId))
+          .first();
+
+        return {
+          ...order,
+          userEmail: user?.email || null,
+          userName: user?.name || null,
+        };
+      })
+    );
+
+    return ordersWithUsers;
+  },
+});
+
+/**
+ * Internal action to process payment reminders (called by cron)
+ */
+export const processPaymentReminders = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    // Get orders needing reminders
+    const orders = await ctx.runQuery(internal.orders.getPendingOrdersForReminders);
+
+    console.log(`Processing ${orders.length} orders for payment reminders`);
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const order of orders) {
+      try {
+        if (!order.userEmail) {
+          console.error(`Order ${order.orderNumber} has no user email, skipping`);
+          errorCount++;
+          continue;
+        }
+
+        const reminderCount = (order.reminderCount || 0) + 1;
+        const isFinalNotice = reminderCount > 3;
+
+        // Determine email kind
+        const emailKind = isFinalNotice ? 'final_notice' : 'payment_reminder';
+
+        // Call the email API
+        const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/send-order-confirmation`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            kind: emailKind,
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            email: order.userEmail,
+            amount: order.amount,
+            totalPages: order.totalPages,
+            fileCount: order.files.length,
+            sourceLanguage: order.sourceLanguage,
+            targetLanguage: order.targetLanguage,
+            reminderNumber: isFinalNotice ? undefined : reminderCount,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Email API returned ${response.status}`);
+        }
+
+        // Update order tracking
+        if (isFinalNotice) {
+          await ctx.runMutation(internal.orders.markFinalNoticeSent, {
+            orderId: order._id,
+          });
+          console.log(`Final notice sent for order ${order.orderNumber}`);
+        } else {
+          await ctx.runMutation(internal.orders.updateOrderReminder, {
+            orderId: order._id,
+            reminderCount,
+          });
+          console.log(`Reminder ${reminderCount} sent for order ${order.orderNumber}`);
+        }
+
+        successCount++;
+      } catch (error) {
+        console.error(`Failed to process reminder for order ${order.orderNumber}:`, error);
+        errorCount++;
+      }
+    }
+
+    console.log(`Payment reminders processed: ${successCount} success, ${errorCount} errors`);
+
+    return {
+      totalProcessed: orders.length,
+      successCount,
+      errorCount,
     };
   },
 });
