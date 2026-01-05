@@ -21,7 +21,7 @@ import {
   type TranslationProvider,
 } from '@/lib/translation-providers';
 import { getLanguageName } from '@/lib/languages';
-import { translateTextV3, performOCR, getGlossaryNameForDomain, type GlossaryConfig } from '@/lib/google-cloud';
+import { translateTextV3, performOCR, getGlossaryNameForDomain, detectLanguageV3, type GlossaryConfig } from '@/lib/google-cloud';
 import {
   DEFAULT_PREPROCESSING_OPTIONS,
   AGGRESSIVE_PREPROCESSING_OPTIONS,
@@ -283,6 +283,35 @@ export async function POST(request: NextRequest) {
         clerkId: userId,
       });
 
+      // If source language was 'auto', detect the actual language and update the order
+      let detectedLanguage: string | undefined;
+      if (sourceLanguage === 'auto' && segments.length > 0) {
+        try {
+          // Get a sample of original text for language detection
+          const sampleText = segments
+            .slice(0, 3)
+            .map((s) => s.originalText)
+            .join('\n')
+            .slice(0, 1000); // Limit to 1000 chars for detection
+
+          if (sampleText.trim()) {
+            const detection = await detectLanguageV3(sampleText);
+            if (detection.languageCode && detection.languageCode !== 'und' && detection.confidence > 0.5) {
+              detectedLanguage = detection.languageCode;
+              // Update the order with the detected source language
+              await convexClient.mutation(api.orders.updateDetectedSourceLanguage, {
+                orderId: orderId as any,
+                detectedSourceLanguage: detection.languageCode,
+                clerkId: userId,
+              });
+            }
+          }
+        } catch (detectError) {
+          console.warn('Language detection failed:', detectError);
+          // Continue without detected language - not critical
+        }
+      }
+
       return jsonWithCors({
         success: true,
         segmentsCount: segments.length,
@@ -291,6 +320,7 @@ export async function POST(request: NextRequest) {
         documentDomain: domain,
         openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
         ocrQuality: ocrQualityNormalized,
+        detectedSourceLanguage: detectedLanguage,
       });
     } catch (error) {
       // Update status to error

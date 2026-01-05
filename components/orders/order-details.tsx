@@ -1,3 +1,10 @@
+/**
+ * Order Details Component
+ * 
+ * NOTE: Translation direction information has been removed from the order details page.
+ * Translation information is still stored in the database and visible to admins, but
+ * is not displayed to users.
+ */
 'use client';
 
 import Link from 'next/link';
@@ -5,7 +12,6 @@ import { useUser } from '@clerk/nextjs';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { format } from 'date-fns';
-import { getLanguageName } from '@/lib/languages';
 import { PayPalButton } from '@/components/orders/paypal-button';
 
 export function OrderDetails({ orderId }: { orderId: string }) {
@@ -55,8 +61,7 @@ export function OrderDetails({ orderId }: { orderId: string }) {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Order {order.orderNumber}</h1>
             <p className="mt-1 text-gray-600">
-              Created {format(new Date(order.createdAt), 'MMM d, yyyy')} •{' '}
-              {getLanguageName(order.sourceLanguage)} → {getLanguageName(order.targetLanguage)}
+              Created {format(new Date(order.createdAt), 'MMM d, yyyy')}
             </p>
           </div>
           <Link href="/user/orders" className="text-blue-600 hover:text-blue-800 font-medium">

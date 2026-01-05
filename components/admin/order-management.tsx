@@ -1,3 +1,10 @@
+/**
+ * Admin Order Management Component
+ * 
+ * NOTE: This component displays the Translation column in the admin order table.
+ * Translation information is visible to admins for order management purposes, but
+ * is hidden from users in their dashboard and emails.
+ */
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -5,7 +12,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { format } from 'date-fns';
-import { getLanguageName } from '@/lib/languages';
+import { getLanguageName, getSourceLanguageDisplay } from '@/lib/languages';
 import { Id } from '@/convex/_generated/dataModel';
 import type { Doc } from '@/convex/_generated/dataModel';
 import { TranslationReview } from './translation-review';
@@ -28,6 +35,7 @@ type OrderWithUser = Doc<'orders'> & {
   userEmail?: string;
   userName?: string | null;
   userTelephone?: string | null;
+  detectedSourceLanguage?: string | null;
 };
 
 export function OrderManagement() {
@@ -586,7 +594,7 @@ export function OrderManagement() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       <div className="flex items-center">
-                        <span className="font-medium">{getLanguageName(order.sourceLanguage)}</span>
+                        <span className="font-medium">{getSourceLanguageDisplay(order.sourceLanguage, order.detectedSourceLanguage)}</span>
                         <span className="mx-2">→</span>
                         <span className="font-medium">{getLanguageName(order.targetLanguage)}</span>
                       </div>
@@ -803,8 +811,7 @@ export function OrderManagement() {
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">{file.fileName}</p>
                       <p className="text-xs text-gray-500">
-                        {file.pageCount} page{file.pageCount !== 1 ? 's' : ''} •{' '}
-                        {getLanguageName(orderDetails.sourceLanguage)}
+                        {file.pageCount} page{file.pageCount !== 1 ? 's' : ''}
                       </p>
                       {isTranslating && (
                         <div className="mt-2 space-y-1">

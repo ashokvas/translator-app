@@ -1,4 +1,10 @@
-import { getLanguageName } from './languages';
+/**
+ * Email Templates for Order Management
+ * 
+ * NOTE: Translation direction (source → target language) has been removed from all user-facing emails
+ * as per requirements. Translation information is still stored in the database and visible to admins
+ * in the admin dashboard, but is not shown to customers in emails or user-facing pages.
+ */
 
 export type EmailKind = 'order_created' | 'payment_reminder' | 'final_notice' | 'payment_confirmed';
 
@@ -8,6 +14,7 @@ interface OrderEmailData {
   totalPages: number;
   fileCount: number;
   sourceLanguage: string;
+  detectedSourceLanguage?: string | null; // Actual detected language when sourceLanguage is 'auto'
   targetLanguage: string;
   estimatedDeliveryDate?: number;
   reminderNumber?: number; // 1, 2, or 3
@@ -151,10 +158,6 @@ function getStyledTemplate(data: OrderEmailData): string {
                   <td style="padding: 12px 20px; border-bottom: 1px solid #e5e7eb; color: #111827; font-weight: bold; font-size: 14px; text-align: right;">${data.orderNumber}</td>
                 </tr>
                 <tr>
-                  <td style="padding: 12px 20px; border-bottom: 1px solid #e5e7eb; color: #6b7280; font-size: 14px;">Translation</td>
-                  <td style="padding: 12px 20px; border-bottom: 1px solid #e5e7eb; color: #111827; font-size: 14px; text-align: right;">${getLanguageName(data.sourceLanguage)} → ${getLanguageName(data.targetLanguage)}</td>
-                </tr>
-                <tr>
                   <td style="padding: 12px 20px; border-bottom: 1px solid #e5e7eb; color: #6b7280; font-size: 14px;">Number of Documents</td>
                   <td style="padding: 12px 20px; border-bottom: 1px solid #e5e7eb; color: #111827; font-size: 14px; text-align: right;">${data.fileCount}</td>
                 </tr>
@@ -228,7 +231,6 @@ export function getOrderCreatedEmail(data: OrderEmailData): { subject: string; h
     
     <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin: 20px 0;">
       <p style="margin: 0 0 10px;"><strong>Order Number:</strong> ${data.orderNumber}</p>
-      <p style="margin: 0 0 10px;"><strong>Translation:</strong> ${getLanguageName(data.sourceLanguage)} → ${getLanguageName(data.targetLanguage)}</p>
       <p style="margin: 0 0 10px;"><strong>Documents:</strong> ${data.fileCount} file${data.fileCount !== 1 ? 's' : ''} (${data.totalPages} page${data.totalPages !== 1 ? 's' : ''})</p>
       <p style="margin: 0;"><strong>Amount Due:</strong> $${data.amount.toFixed(2)}</p>
     </div>
@@ -276,7 +278,6 @@ export function getPaymentReminderEmail(data: OrderEmailData): { subject: string
     
     <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin: 20px 0;">
       <p style="margin: 0 0 10px;"><strong>Order Number:</strong> ${data.orderNumber}</p>
-      <p style="margin: 0 0 10px;"><strong>Translation:</strong> ${getLanguageName(data.sourceLanguage)} → ${getLanguageName(data.targetLanguage)}</p>
       <p style="margin: 0 0 10px;"><strong>Documents:</strong> ${data.fileCount} file${data.fileCount !== 1 ? 's' : ''} (${data.totalPages} page${data.totalPages !== 1 ? 's' : ''})</p>
       <p style="margin: 0;"><strong>Amount Due:</strong> $${data.amount.toFixed(2)}</p>
     </div>
@@ -315,7 +316,6 @@ export function getFinalNoticeEmail(data: OrderEmailData): { subject: string; ht
     
     <div style="background-color: #fef2f2; padding: 20px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ef4444;">
       <p style="margin: 0 0 10px; color: #991b1b;"><strong>Order Number:</strong> ${data.orderNumber}</p>
-      <p style="margin: 0 0 10px; color: #991b1b;"><strong>Translation:</strong> ${getLanguageName(data.sourceLanguage)} → ${getLanguageName(data.targetLanguage)}</p>
       <p style="margin: 0 0 10px; color: #991b1b;"><strong>Documents:</strong> ${data.fileCount} file${data.fileCount !== 1 ? 's' : ''} (${data.totalPages} page${data.totalPages !== 1 ? 's' : ''})</p>
       <p style="margin: 0; color: #991b1b;"><strong>Amount Due:</strong> $${data.amount.toFixed(2)}</p>
     </div>

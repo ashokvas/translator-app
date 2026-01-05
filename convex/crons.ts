@@ -45,6 +45,7 @@ export const processPaymentReminders = internalAction({
             totalPages: order.totalPages,
             fileCount: order.files.length,
             sourceLanguage: order.sourceLanguage,
+            detectedSourceLanguage: (order as any).detectedSourceLanguage || null,
             targetLanguage: order.targetLanguage,
             reminderNumber: isFinalNotice ? undefined : reminderCount,
           }),

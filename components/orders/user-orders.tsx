@@ -1,3 +1,10 @@
+/**
+ * User Orders Component
+ * 
+ * NOTE: Translation direction column has been removed from the user-facing orders table.
+ * Translation information is still stored in the database and visible to admins, but
+ * is not displayed to users in their dashboard.
+ */
 'use client';
 
 import Link from 'next/link';
@@ -5,7 +12,6 @@ import { useUser } from '@clerk/nextjs';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { format } from 'date-fns';
-import { getLanguageName } from '@/lib/languages';
 
 export function UserOrders() {
   const { user, isLoaded } = useUser();
@@ -53,9 +59,6 @@ export function UserOrders() {
                     Order #
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Translation
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Pages
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -90,9 +93,6 @@ export function UserOrders() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {order.orderNumber}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {getLanguageName(order.sourceLanguage)} → {getLanguageName(order.targetLanguage)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {order.totalPages}
