@@ -73,9 +73,20 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     fc-cache -f -v
 
-# Create non-root user for security
+# Create non-root user for security with a proper home directory
 RUN groupadd --system --gid 1001 nodejs \
-    && useradd --system --uid 1001 --gid nodejs nextjs
+    && useradd --system --uid 1001 --gid nodejs --create-home --home-dir /home/nextjs nextjs
+
+# Create necessary directories for LibreOffice to run as non-root user
+# LibreOffice needs writable cache/config directories to function properly
+RUN mkdir -p /home/nextjs/.cache/dconf \
+    && mkdir -p /home/nextjs/.config/libreoffice \
+    && mkdir -p /tmp/.X11-unix \
+    && chown -R nextjs:nodejs /home/nextjs \
+    && chmod -R 755 /home/nextjs
+
+# Set HOME environment variable so LibreOffice finds its config directory
+ENV HOME=/home/nextjs
 
 # Set environment variables
 ENV NODE_ENV=production
