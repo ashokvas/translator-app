@@ -10504,11 +10504,11 @@ Translation process
 
 
 
-The admin has a right to start looking at the orders received and then if he wants to go ahead and translates the same as per the order, he has to click on the "View and Translate" button in the order table. He is taken to another screen where the full details of the order as well as the list of documents are shown. Against each document there will be a button called "Translate." When the user presses on that the documents are sent to the translation API as follows.  
+The admin has a right to start looking at the orders received and then if he wants to go ahead and translates the same as per the order, he has to click on the "View and Translate" button in the order table. He is taken to another screen where the full details of the order as well as the list of documents are shown. Against each document there will be a button called "Translate." When the user presses on that the documents are sent to the translation API as follows. 
 
 
 
- **Translation Engine** - Primary: Google Cloud Translation API (Advanced v3) - For images (JPEG, PNG, WebP): Use Google Cloud Vision API for OCR, then translate extracted text - For documents (PDF, DOCX, XLSX): Use native document translation APIs to preserve formatting - Process files in parallel using Next.js server actions - Show real-time progress using shadcn/ui Progress and Toast notifications  
+**Translation Engine** - Primary: Google Cloud Translation API (Advanced v3) - For images (JPEG, PNG, WebP): Use Google Cloud Vision API for OCR, then translate extracted text - For documents (PDF, DOCX, XLSX): Use native document translation APIs to preserve formatting - Process files in parallel using Next.js server actions - Show real-time progress using shadcn/ui Progress and Toast notifications
 
 
 
