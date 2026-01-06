@@ -372,6 +372,44 @@ export const getOrderWithFiles = query({
 });
 
 /**
+ * Update detected source language (admin only)
+ * Called when auto-detect is used and the actual language is determined during translation
+ */
+export const updateDetectedSourceLanguage = mutation({
+  args: {
+    orderId: v.id("orders"),
+    detectedSourceLanguage: v.string(),
+    clerkId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Check if user is admin
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+
+    if (!user || user.role !== "admin") {
+      throw new Error("Only admins can update detected source language");
+    }
+
+    const order = await ctx.db.get(args.orderId);
+    if (!order) {
+      throw new Error("Order not found");
+    }
+
+    // Only update if source language was 'auto' and detected language is not already set
+    if (order.sourceLanguage === "auto" && !order.detectedSourceLanguage) {
+      await ctx.db.patch(args.orderId, {
+        detectedSourceLanguage: args.detectedSourceLanguage,
+        updatedAt: Date.now(),
+      });
+    }
+
+    return { success: true };
+  },
+});
+
+/**
  * Update order reminder tracking (internal - called by cron)
  */
 export const updateOrderReminder = internalMutation({
@@ -459,5 +497,3 @@ export const getPendingOrdersForReminders = internalQuery({
     return ordersWithUsers;
   },
 });
-
-

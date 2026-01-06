@@ -52,3 +52,19 @@ export function getLanguageLabel(code: string): string {
   return lang ? `${lang.flag} ${lang.name}` : code;
 }
 
+/**
+ * Get the display name for the source language, preferring the detected language over 'auto'
+ * @param sourceLanguage - The stored source language code (may be 'auto')
+ * @param detectedSourceLanguage - The detected source language code (if available)
+ * @returns The display name for the source language
+ */
+export function getSourceLanguageDisplay(
+  sourceLanguage: string,
+  detectedSourceLanguage?: string | null
+): string {
+  // If we have a detected language and the original was 'auto', use the detected one
+  if (sourceLanguage === AUTO_DETECT_LANGUAGE.code && detectedSourceLanguage) {
+    return getLanguageName(detectedSourceLanguage);
+  }
+  return getLanguageName(sourceLanguage);
+}
