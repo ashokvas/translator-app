@@ -5,7 +5,6 @@ import { api } from '@/convex/_generated/api';
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import { useState } from 'react';
-import { getLanguageName } from '@/lib/languages';
 
 export function UserDashboard() {
   const { user, isLoaded } = useUser();
@@ -175,9 +174,6 @@ export function UserDashboard() {
                         Date
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Translation
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Files
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -205,11 +201,6 @@ export function UserDashboard() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {formatDate(order.createdAt)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {order.sourceLanguage && order.targetLanguage
-                            ? `${getLanguageName(order.sourceLanguage)} → ${getLanguageName(order.targetLanguage)}`
-                            : 'N/A'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {order.files.length}
