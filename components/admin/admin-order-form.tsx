@@ -51,7 +51,7 @@ export function AdminOrderForm() {
   const router = useRouter();
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [sourceLanguage, setSourceLanguage] = useState<string>(AUTO_DETECT_LANGUAGE.code);
-  const [targetLanguage, setTargetLanguage] = useState<string>('es');
+  const [targetLanguage, setTargetLanguage] = useState<string>('en');
   const [ocrQuality, setOcrQuality] = useState<OcrQuality>('high');
   const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [showNewClientForm, setShowNewClientForm] = useState(false);
@@ -190,8 +190,8 @@ export function AdminOrderForm() {
       
       // Reset form
       setUploadedFiles([]);
-      setSourceLanguage('en');
-      setTargetLanguage('es');
+      setSourceLanguage(AUTO_DETECT_LANGUAGE.code);
+      setTargetLanguage('en');
       setSelectedClientId('');
       
       // Redirect to orders tab

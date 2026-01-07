@@ -51,7 +51,7 @@ export function NewOrderForm() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   // Source language is always 'auto' (auto-detect) - not shown to user
   const sourceLanguage = 'auto';
-  const [targetLanguage, setTargetLanguage] = useState<string>('es');
+  const [targetLanguage, setTargetLanguage] = useState<string>('en');
   const [ocrQuality, setOcrQuality] = useState<OcrQuality>('high');
   const [isProcessing, setIsProcessing] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
