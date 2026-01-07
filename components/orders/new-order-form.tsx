@@ -6,7 +6,7 @@ import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { FileUpload } from './file-upload';
 import { PayPalButton } from './paypal-button';
-import { AUTO_DETECT_LANGUAGE, LANGUAGES, getLanguageLabel, getLanguageName } from '@/lib/languages';
+import { LANGUAGES, getLanguageLabel, getLanguageName } from '@/lib/languages';
 import { Id } from '@/convex/_generated/dataModel';
 import { Select, SelectItem } from '@/components/ui/select';
 import { NoticeDialog, type NoticeState } from '@/components/ui/notice-dialog';
@@ -49,7 +49,8 @@ const PRICE_PER_PAGE = 35;
 export function NewOrderForm() {
   const { user } = useUser();
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [sourceLanguage, setSourceLanguage] = useState<string>(AUTO_DETECT_LANGUAGE.code);
+  // Source language is always 'auto' (auto-detect) - not shown to user
+  const sourceLanguage = 'auto';
   const [targetLanguage, setTargetLanguage] = useState<string>('es');
   const [ocrQuality, setOcrQuality] = useState<OcrQuality>('high');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -85,8 +86,8 @@ export function NewOrderForm() {
       return;
     }
 
-    if (!sourceLanguage || !targetLanguage || sourceLanguage === targetLanguage) {
-      setNotice({ title: 'Invalid languages', message: 'Please select two different languages.' });
+    if (!targetLanguage) {
+      setNotice({ title: 'Invalid language', message: 'Please select a target language.' });
       return;
     }
 
@@ -147,57 +148,30 @@ export function NewOrderForm() {
       {/* Language Selection Section */}
       <div>
         <h2 className="text-xl font-semibold text-gray-900 mb-4">
-          Translation Languages
+          Translation Language
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label
-              htmlFor="source-language"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Source Language
-            </label>
-              <Select
-              id="source-language"
-                value={sourceLanguage}
-                onValueChange={setSourceLanguage}
-              >
-                <SelectItem value={AUTO_DETECT_LANGUAGE.code}>
-                  {getLanguageLabel(AUTO_DETECT_LANGUAGE.code)}
-                </SelectItem>
-                {LANGUAGES.map((lang) => (
-                  <SelectItem key={lang.code} value={lang.code}>
-                    {getLanguageLabel(lang.code)}
-                  </SelectItem>
-                ))}
-              </Select>
-          </div>
-          <div>
-            <label
-              htmlFor="target-language"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Target Language
-            </label>
-              <Select
-              id="target-language"
-                value={targetLanguage}
-                onValueChange={setTargetLanguage}
-              >
-              {LANGUAGES.map((lang) => (
-                  <SelectItem key={lang.code} value={lang.code}>
-                    {getLanguageLabel(lang.code)}
-                  </SelectItem>
-              ))}
-              </Select>
-          </div>
-        </div>
-        {sourceLanguage && targetLanguage && (
-          <p className="mt-3 text-sm text-gray-600">
-            Translating from <strong>{getLanguageName(sourceLanguage)}</strong> to{' '}
-            <strong>{getLanguageName(targetLanguage)}</strong>
+        <div>
+          <label
+            htmlFor="target-language"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
+            Target Language
+          </label>
+          <Select
+            id="target-language"
+            value={targetLanguage}
+            onValueChange={setTargetLanguage}
+          >
+            {LANGUAGES.map((lang) => (
+              <SelectItem key={lang.code} value={lang.code}>
+                {getLanguageLabel(lang.code)}
+              </SelectItem>
+            ))}
+          </Select>
+          <p className="mt-2 text-sm text-gray-600">
+            Your documents will be translated to <strong>{getLanguageName(targetLanguage)}</strong>.
           </p>
-        )}
+        </div>
       </div>
 
       {/* File Upload Section */}
@@ -271,9 +245,9 @@ export function NewOrderForm() {
           </h2>
           <div className="space-y-3">
             <div className="flex justify-between">
-              <span className="text-gray-600">Translation:</span>
+              <span className="text-gray-600">Target Language:</span>
               <span className="font-medium">
-                {getLanguageName(sourceLanguage)} → {getLanguageName(targetLanguage)}
+                {getLanguageName(targetLanguage)}
               </span>
             </div>
             <div className="flex justify-between">
@@ -319,7 +293,7 @@ export function NewOrderForm() {
             type="button"
             onClick={handleCreateOrder}
             className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={sourceLanguage === targetLanguage}
+            disabled={!targetLanguage}
           >
             Create Order (Pay Later)
           </button>
