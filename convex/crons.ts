@@ -92,7 +92,6 @@ const crons = cronJobs();
 crons.daily(
   "send payment reminders",
   { hourUTC: 9, minuteUTC: 0 },
-  // @ts-expect-error - Type will be generated after convex deploy
   internal.crons.processPaymentReminders
 );
 

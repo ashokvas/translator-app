@@ -128,13 +128,13 @@ export function MarkdownTableRenderer({ text, className = '' }: MarkdownTableRen
         if (block.type === 'table' && block.table) {
           return (
             <div key={blockIndex} className="my-3 overflow-x-auto">
-              <table className="min-w-full border-collapse border border-gray-400">
+              <table className="min-w-full border-collapse border border-border">
                 <thead>
-                  <tr className="bg-gray-100">
+                  <tr className="bg-muted/40">
                     {block.table.headers.map((header, i) => (
                       <th
                         key={i}
-                        className="border border-gray-400 px-3 py-2 text-left text-sm font-bold text-gray-900"
+                        className="border border-border px-3 py-2 text-left text-sm font-bold text-foreground"
                       >
                         {header}
                       </th>
@@ -143,11 +143,11 @@ export function MarkdownTableRenderer({ text, className = '' }: MarkdownTableRen
                 </thead>
                 <tbody>
                   {block.table.rows.map((row, rowIndex) => (
-                    <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-background' : 'bg-muted/30'}>
                       {row.map((cell, cellIndex) => (
                         <td
                           key={cellIndex}
-                          className="border border-gray-400 px-3 py-2 text-sm text-gray-900"
+                          className="border border-border px-3 py-2 text-sm text-foreground"
                         >
                           {cell}
                         </td>
@@ -162,7 +162,7 @@ export function MarkdownTableRenderer({ text, className = '' }: MarkdownTableRen
         
         // Regular text block
         return (
-          <p key={blockIndex} className="text-sm text-gray-900 whitespace-pre-wrap">
+          <p key={blockIndex} className="text-sm text-foreground whitespace-pre-wrap">
             {block.content}
           </p>
         );

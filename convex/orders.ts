@@ -7,6 +7,22 @@ import { query, mutation, internalQuery, internalMutation } from "./_generated/s
 export const createOrder = mutation({
   args: {
     clerkId: v.string(),
+    serviceType: v.union(
+      v.literal("certified"),
+      v.literal("general"),
+      v.literal("custom")
+    ),
+    isRush: v.boolean(),
+    documentDomain: v.optional(
+      v.union(
+        v.literal("general"),
+        v.literal("certificate"),
+        v.literal("legal"),
+        v.literal("medical"),
+        v.literal("technical")
+      )
+    ),
+    remarks: v.optional(v.string()),
     files: v.array(
       v.object({
         fileName: v.string(),
@@ -38,19 +54,28 @@ export const createOrder = mutation({
     const orderNumber = `TRANS-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
     const now = Date.now();
-    const estimatedDeliveryDate = now + 7 * 24 * 60 * 60 * 1000; // 7 days from now
+    // Rush orders: 1 day, Standard orders: 7 days
+    const deliveryDays = args.isRush ? 1 : 7;
+    const estimatedDeliveryDate = now + deliveryDays * 24 * 60 * 60 * 1000;
+
+    // Determine initial status: custom orders start as quote_pending, others as pending
+    const initialStatus = args.serviceType === "custom" ? "quote_pending" : "pending";
 
     const orderId = await ctx.db.insert("orders", {
       userId: user._id,
       clerkId: args.clerkId,
       orderNumber,
+      serviceType: args.serviceType,
+      isRush: args.isRush,
+      documentDomain: args.documentDomain,
+      remarks: args.remarks,
       files: args.files,
       totalPages: args.totalPages,
       amount: args.amount,
       sourceLanguage: args.sourceLanguage,
       targetLanguage: args.targetLanguage,
       ocrQuality: args.ocrQuality || "high", // Default to high quality
-      status: "pending",
+      status: initialStatus,
       estimatedDeliveryDate,
       createdAt: now,
       updatedAt: now,
@@ -159,6 +184,47 @@ export const getAllOrders = query({
     );
 
     return ordersWithUsers;
+  },
+});
+
+/**
+ * Set quote amount for custom order (admin only)
+ */
+export const setQuoteAmount = mutation({
+  args: {
+    orderId: v.id("orders"),
+    quoteAmount: v.number(),
+    clerkId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Check if user is admin
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+
+    if (!user || user.role !== "admin") {
+      throw new Error("Only admins can set quote amounts");
+    }
+
+    const order = await ctx.db.get(args.orderId);
+    if (!order) {
+      throw new Error("Order not found");
+    }
+
+    if (order.serviceType !== "custom") {
+      throw new Error("Quote amounts can only be set for custom orders");
+    }
+
+    // Update order with quote amount and change status from quote_pending to pending
+    await ctx.db.patch(args.orderId, {
+      quoteAmount: args.quoteAmount,
+      amount: args.quoteAmount,
+      status: "pending",
+      updatedAt: Date.now(),
+    });
+
+    return { success: true };
   },
 });
 

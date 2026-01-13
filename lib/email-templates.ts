@@ -6,7 +6,7 @@
  * in the admin dashboard, but is not shown to customers in emails or user-facing pages.
  */
 
-export type EmailKind = 'order_created' | 'payment_reminder' | 'final_notice' | 'payment_confirmed';
+export type EmailKind = 'order_created' | 'payment_reminder' | 'final_notice' | 'payment_confirmed' | 'quote_ready';
 
 interface OrderEmailData {
   orderNumber: string;
@@ -359,6 +359,44 @@ export function getPaymentConfirmedEmail(data: OrderEmailData): { subject: strin
   };
 }
 
+// Quote Ready Email (for custom orders)
+export function getQuoteReadyEmail(data: OrderEmailData): { subject: string; html: string } {
+  const paymentUrl = `${APP_URL}/user/orders/${data.orderId}`;
+  
+  const message = `
+    <p>Good news! We've reviewed your custom translation request and prepared a quote for you.</p>
+    
+    <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin: 20px 0;">
+      <p style="margin: 0 0 10px;"><strong>Order Number:</strong> ${data.orderNumber}</p>
+      <p style="margin: 0 0 10px;"><strong>Documents:</strong> ${data.fileCount} file${data.fileCount !== 1 ? 's' : ''} (${data.totalPages} page${data.totalPages !== 1 ? 's' : ''})</p>
+      <p style="margin: 0;"><strong>Quote Amount:</strong> <span style="font-size: 24px; color: #059669;">$${data.amount.toFixed(2)}</span></p>
+    </div>
+    
+    <p><strong>Ready to proceed?</strong> Complete payment using the button below to start the translation process. Our professional translators will begin working on your documents as soon as payment is received.</p>
+    
+    <div style="margin: 20px 0; padding: 15px; background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px;">
+      <p style="margin: 0; color: #1e40af; font-size: 14px;">
+        💳 <strong>Payment Link:</strong><br>
+        <a href="${paymentUrl}" style="color: #2563eb; word-break: break-all;">${paymentUrl}</a>
+      </p>
+    </div>
+    
+    <p>If you have any questions about the quote or need adjustments, please don't hesitate to contact us at sales@translatoraxis.com.</p>
+  `;
+
+  return {
+    subject: `Your Custom Translation Quote is Ready - ${data.orderNumber}`,
+    html: getSimpleTemplate(
+      'Quote Ready',
+      'Your Custom Quote is Ready',
+      message,
+      'Review Quote & Pay',
+      paymentUrl,
+      'normal'
+    ),
+  };
+}
+
 // Main function to get email by kind
 export function getEmailTemplate(kind: EmailKind, data: OrderEmailData): { subject: string; html: string } {
   switch (kind) {
@@ -370,6 +408,8 @@ export function getEmailTemplate(kind: EmailKind, data: OrderEmailData): { subje
       return getFinalNoticeEmail(data);
     case 'payment_confirmed':
       return getPaymentConfirmedEmail(data);
+    case 'quote_ready':
+      return getQuoteReadyEmail(data);
     default:
       throw new Error(`Unknown email kind: ${kind}`);
   }

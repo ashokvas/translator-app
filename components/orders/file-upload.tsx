@@ -198,12 +198,12 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
       <Card
         {...getRootProps()}
         className={`cursor-pointer border-dashed transition-colors ${
-          isDragActive ? 'border-blue-500 bg-blue-50' : 'hover:border-gray-300'
+          isDragActive ? 'border-primary bg-muted/40' : 'hover:border-border/70'
         }`}
       >
         <input {...getInputProps()} />
         <CardContent className="p-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-600">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
             <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor">
               <path
                 strokeWidth="2"
@@ -214,10 +214,10 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
             </svg>
           </div>
           <div className="space-y-1">
-            <div className="text-sm font-medium text-gray-900">
+            <div className="text-sm font-medium text-foreground">
               Drag & drop files here, or click to select
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-muted-foreground">
               PDF, JPEG, PNG, WebP, DOCX, XLSX • Max 10MB per file
             </div>
           </div>
@@ -227,7 +227,7 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
       {/* Upload queue */}
       {items.length > 0 && (
         <div className="space-y-2">
-          <div className="text-sm font-semibold text-gray-900">Upload queue</div>
+          <div className="text-sm font-semibold text-foreground">Upload queue</div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((it) => (
               <Card key={it.id} className="overflow-hidden">
@@ -245,12 +245,12 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
                       <span
                         className={
                           it.status === 'done'
-                            ? 'text-green-700'
+                            ? 'text-green-600'
                             : it.status === 'error'
-                            ? 'text-red-700'
+                            ? 'text-red-600'
                             : it.status === 'uploading'
-                            ? 'text-blue-700'
-                            : 'text-gray-500'
+                            ? 'text-primary'
+                            : 'text-muted-foreground'
                         }
                       >
                         {it.status}
@@ -259,7 +259,7 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <div className="flex items-center gap-3">
-                      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+                      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-border bg-muted/40">
                         {it.previewUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -268,21 +268,21 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
                             className="h-full w-full object-cover"
                           />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center text-xs text-gray-500">
+                          <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
                             {fileTypeLabel(it.file.type)}
                           </div>
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <Progress value={it.progress} />
-                        <div className="mt-1 text-xs text-gray-500">
+                        <div className="mt-1 text-xs text-muted-foreground">
                           {it.status === 'done' && it.uploaded ? (
                             <>
                               {it.uploaded.pageCount} page{it.uploaded.pageCount !== 1 ? 's' : ''} • $
                               {(it.uploaded.pageCount * 35).toFixed(2)}
                             </>
                           ) : it.status === 'error' ? (
-                            <span className="text-red-700">{it.error}</span>
+                            <span className="text-red-600">{it.error}</span>
                           ) : (
                             <span>Uploading…</span>
                           )}
@@ -299,25 +299,25 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
 
       {uploadedFiles.length > 0 && (
         <div className="space-y-2">
-          <h3 className="font-semibold text-gray-900">Uploaded Files ({uploadedFiles.length})</h3>
+          <h3 className="font-semibold text-foreground">Uploaded Files ({uploadedFiles.length})</h3>
           <div className="space-y-2">
             {uploadedFiles.map((file, index) => (
               <div
                 key={index}
-                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                className="flex items-center justify-between p-3 bg-muted/40 rounded-lg"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
+                  <p className="text-sm font-medium text-foreground truncate">
                     {file.fileName}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     {formatFileSize(file.fileSize)} • {file.pageCount} page
                     {file.pageCount !== 1 ? 's' : ''} • ${(file.pageCount * 35).toFixed(2)}
                   </p>
                 </div>
                 <button
                   onClick={() => removeFile(index)}
-                  className="ml-4 text-red-600 hover:text-red-800"
+                  className="ml-4 text-red-600 hover:text-red-500"
                   type="button"
                 >
                   <svg
@@ -349,7 +349,7 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
       >
         {preview ? (
           <div className="space-y-4">
-            <div className="text-sm text-gray-600">
+            <div className="text-sm text-muted-foreground">
               {fileTypeLabel(preview.file.type)} • {formatFileSize(preview.file.size)}
               {preview.uploaded ? (
                 <>
@@ -364,16 +364,16 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
               <img
                 src={preview.previewUrl}
                 alt={preview.file.name}
-                className="max-h-[60vh] w-full rounded-lg object-contain bg-gray-50"
+                className="max-h-[60vh] w-full rounded-lg object-contain bg-muted/40"
               />
             ) : preview.file.type === 'application/pdf' && preview.uploaded?.fileUrl ? (
               <iframe
                 src={preview.uploaded.fileUrl}
-                className="h-[60vh] w-full rounded-lg border border-gray-200 bg-white"
+                className="h-[60vh] w-full rounded-lg border border-border bg-background"
                 title="PDF preview"
               />
             ) : (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm text-gray-600">
+              <div className="rounded-lg border border-border bg-muted/40 p-6 text-sm text-muted-foreground">
                 Preview not available for this file type.
               </div>
             )}

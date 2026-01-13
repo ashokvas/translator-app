@@ -66,19 +66,19 @@ export function AssignAdmin() {
   };
 
   return (
-    <div className="p-6 bg-white rounded-lg shadow">
+    <div className="p-6 bg-card text-card-foreground rounded-lg border border-border shadow-sm">
       <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
       <h2 className="text-xl font-bold mb-4">Assign Admin Role</h2>
       
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-foreground mb-2">
             Select User to Make Admin
           </label>
           <select
             value={selectedUserId}
             onChange={(e) => setSelectedUserId(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2"
+            className="w-full border border-border bg-background text-foreground rounded px-3 py-2"
           >
             <option value="">Select a user...</option>
             {allUsers
@@ -94,13 +94,13 @@ export function AssignAdmin() {
         <button
           onClick={handleAssignAdmin}
           disabled={!selectedUserId || isUpdating}
-          className="w-full bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-primary text-primary-foreground px-4 py-2 rounded hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isUpdating ? 'Assigning...' : 'Assign Admin Role'}
         </button>
 
-        <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
-          <p className="text-sm text-yellow-800">
+        <div className="mt-4 p-4 bg-muted/40 border border-border rounded">
+          <p className="text-sm text-muted-foreground">
             <strong>Initial Setup:</strong> If you're setting up the first admin, you may need to
             manually update the database or use the Convex dashboard to set your user role to
             'admin'.

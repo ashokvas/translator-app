@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate email kind
-    const validKinds: EmailKind[] = ['order_created', 'payment_reminder', 'final_notice', 'payment_confirmed'];
+    const validKinds: EmailKind[] = ['order_created', 'payment_reminder', 'final_notice', 'payment_confirmed', 'quote_ready'];
     if (!validKinds.includes(kind as EmailKind)) {
       return NextResponse.json(
         { error: `Invalid email kind. Must be one of: ${validKinds.join(', ')}` },

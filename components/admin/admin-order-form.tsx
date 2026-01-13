@@ -9,6 +9,7 @@ import { AUTO_DETECT_LANGUAGE, LANGUAGES, getLanguageLabel, getLanguageName } fr
 import { Id } from '@/convex/_generated/dataModel';
 import { useRouter } from 'next/navigation';
 import { Select, SelectItem } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { NoticeDialog, type NoticeState } from '@/components/ui/notice-dialog';
 
 interface UploadedFile {
@@ -21,6 +22,8 @@ interface UploadedFile {
 }
 
 type OcrQuality = 'low' | 'high';
+type ServiceType = 'certified' | 'general' | 'custom';
+type DocumentDomain = 'general' | 'certificate' | 'legal' | 'medical' | 'technical';
 
 interface OcrQualityOption {
   value: OcrQuality;
@@ -44,12 +47,22 @@ const OCR_QUALITY_OPTIONS: OcrQualityOption[] = [
   },
 ];
 
-const PRICE_PER_PAGE = 35;
+const DOCUMENT_DOMAINS: Array<{ value: DocumentDomain; label: string }> = [
+  { value: 'general', label: 'General' },
+  { value: 'certificate', label: 'Certificate/Official' },
+  { value: 'legal', label: 'Legal' },
+  { value: 'medical', label: 'Medical' },
+  { value: 'technical', label: 'Technical' },
+];
 
 export function AdminOrderForm() {
   const { user } = useUser();
   const router = useRouter();
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [serviceType, setServiceType] = useState<ServiceType>('general');
+  const [isRush, setIsRush] = useState(false);
+  const [documentDomain, setDocumentDomain] = useState<DocumentDomain>('general');
+  const [remarks, setRemarks] = useState<string>('');
   const [sourceLanguage, setSourceLanguage] = useState<string>(AUTO_DETECT_LANGUAGE.code);
   const [targetLanguage, setTargetLanguage] = useState<string>('en');
   const [ocrQuality, setOcrQuality] = useState<OcrQuality>('high');
@@ -63,6 +76,7 @@ export function AdminOrderForm() {
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const createOrder = useMutation(api.orders.createOrder);
   const createClientUser = useMutation(api.users.createClientUser);
+  const pricing = useQuery(api.settings.getPricing);
   
   // Get all users for client selection
   const allUsers = useQuery(
@@ -71,7 +85,19 @@ export function AdminOrderForm() {
   );
 
   const totalPages = uploadedFiles.reduce((sum, file) => sum + file.pageCount, 0);
-  const totalAmount = totalPages * PRICE_PER_PAGE;
+
+  // Calculate amount based on service type and pricing
+  const calculateAmount = () => {
+    if (serviceType === 'custom') return 0;
+    if (!pricing) return 0;
+
+    const serviceConfig = serviceType === 'certified' ? pricing.certified : pricing.general;
+    const baseRate = serviceConfig.basePerPage;
+    const rushExtra = isRush ? serviceConfig.rushExtraPerPage : 0;
+    return totalPages * (baseRate + rushExtra);
+  };
+
+  const totalAmount = calculateAmount();
 
   const handleCreateNewClient = async () => {
     if (!user?.id) {
@@ -155,6 +181,10 @@ export function AdminOrderForm() {
       // Create order for the selected client (not the admin)
       const result = await createOrder({
         clerkId: selectedClientId, // Use selected client's ID, not admin's ID
+        serviceType,
+        isRush,
+        documentDomain,
+        remarks: remarks.trim() || undefined,
         files: filesForOrder,
         totalPages,
         amount: totalAmount,
@@ -190,6 +220,10 @@ export function AdminOrderForm() {
       
       // Reset form
       setUploadedFiles([]);
+      setServiceType('general');
+      setIsRush(false);
+      setDocumentDomain('general');
+      setRemarks('');
       setSourceLanguage(AUTO_DETECT_LANGUAGE.code);
       setTargetLanguage('en');
       setSelectedClientId('');
@@ -205,11 +239,11 @@ export function AdminOrderForm() {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 space-y-6">
+    <div className="bg-card text-card-foreground rounded-lg border border-border shadow-sm p-6 space-y-6">
       <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
       {/* Client Selection Section */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
+        <h2 className="text-xl font-semibold text-foreground mb-4">
           Select Client
         </h2>
         <div className="space-y-4">
@@ -218,7 +252,7 @@ export function AdminOrderForm() {
               <div>
                 <label
                   htmlFor="client-select"
-                  className="block text-sm font-medium text-gray-700 mb-2"
+                  className="block text-sm font-medium text-foreground mb-2"
                 >
                   Client for this order
                 </label>
@@ -226,7 +260,7 @@ export function AdminOrderForm() {
                   id="client-select"
                   value={selectedClientId}
                   onChange={(e) => setSelectedClientId(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full border border-border bg-background text-foreground rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
                 >
                   <option value="">-- Select a client --</option>
                   {allUsers
@@ -238,7 +272,7 @@ export function AdminOrderForm() {
                     ))}
                 </select>
                 {selectedClientId && (
-                  <p className="mt-2 text-sm text-gray-600">
+                  <p className="mt-2 text-sm text-muted-foreground">
                     Order will be created for:{' '}
                     <strong>
                       {allUsers?.find((u: any) => u.clerkId === selectedClientId)?.name ||
@@ -252,22 +286,22 @@ export function AdminOrderForm() {
                 <button
                   type="button"
                   onClick={() => setShowNewClientForm(true)}
-                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  className="text-primary hover:opacity-90 text-sm font-medium"
                 >
                   + Create New Client
                 </button>
               </div>
             </>
           ) : (
-            <div className="border border-gray-300 rounded-lg p-4 bg-gray-50">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            <div className="border border-border rounded-lg p-4 bg-muted/40">
+              <h3 className="text-lg font-semibold text-foreground mb-4">
                 Create New Client
               </h3>
               <div className="space-y-4">
                 <div>
                   <label
                     htmlFor="new-client-email"
-                    className="block text-sm font-medium text-gray-700 mb-2"
+                    className="block text-sm font-medium text-foreground mb-2"
                   >
                     Email <span className="text-red-500">*</span>
                   </label>
@@ -277,14 +311,14 @@ export function AdminOrderForm() {
                     value={newClientEmail}
                     onChange={(e) => setNewClientEmail(e.target.value)}
                     placeholder="client@example.com"
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-border bg-background text-foreground rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
                     required
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="new-client-name"
-                    className="block text-sm font-medium text-gray-700 mb-2"
+                    className="block text-sm font-medium text-foreground mb-2"
                   >
                     Name
                   </label>
@@ -294,13 +328,13 @@ export function AdminOrderForm() {
                     value={newClientName}
                     onChange={(e) => setNewClientName(e.target.value)}
                     placeholder="Client Name"
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-border bg-background text-foreground rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="new-client-phone"
-                    className="block text-sm font-medium text-gray-700 mb-2"
+                    className="block text-sm font-medium text-foreground mb-2"
                   >
                     Phone Number
                   </label>
@@ -310,7 +344,7 @@ export function AdminOrderForm() {
                     value={newClientPhone}
                     onChange={(e) => setNewClientPhone(e.target.value)}
                     placeholder="+1 (555) 123-4567"
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-border bg-background text-foreground rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
                   />
                 </div>
                 <div className="flex gap-3">
@@ -318,7 +352,7 @@ export function AdminOrderForm() {
                     type="button"
                     onClick={handleCreateNewClient}
                     disabled={isCreatingClient || !newClientEmail.trim()}
-                    className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isCreatingClient ? 'Creating...' : 'Create Client'}
                   </button>
@@ -330,7 +364,7 @@ export function AdminOrderForm() {
                       setNewClientEmail('');
                       setNewClientPhone('');
                     }}
-                    className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+                    className="flex-1 bg-muted text-foreground px-4 py-2 rounded-lg font-medium hover:bg-muted/70 transition-colors"
                   >
                     Cancel
                   </button>
@@ -341,16 +375,68 @@ export function AdminOrderForm() {
         </div>
       </div>
 
+      {/* Service Type Selection */}
+      <div>
+        <h2 className="text-xl font-semibold text-foreground mb-4">Service Type</h2>
+        <Select id="service-type" value={serviceType} onValueChange={(v) => setServiceType(v as ServiceType)}>
+          <SelectItem value="general">General Translation</SelectItem>
+          <SelectItem value="certified">Certified Translation</SelectItem>
+          <SelectItem value="custom">Custom Translation</SelectItem>
+        </Select>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Select the type of translation service for this order.
+        </p>
+      </div>
+
+      {/* Document Domain */}
+      <div>
+        <h2 className="text-xl font-semibold text-foreground mb-4">Document Type</h2>
+        <Select id="document-domain" value={documentDomain} onValueChange={(v) => setDocumentDomain(v as DocumentDomain)}>
+          {DOCUMENT_DOMAINS.map((domain) => (
+            <SelectItem key={domain.value} value={domain.value}>
+              {domain.label}
+            </SelectItem>
+          ))}
+        </Select>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Select the document type for optimal translation quality.
+        </p>
+      </div>
+
+      {/* Rush Service */}
+      <div className="border-t pt-6">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isRush}
+            onChange={(e) => setIsRush(e.target.checked)}
+            className="mt-1 h-5 w-5 text-primary rounded focus:ring-primary"
+          />
+          <div className="flex-1">
+            <div className="font-semibold text-foreground">Rush Service (24-hour delivery)</div>
+            <p className="text-sm text-muted-foreground mt-1">
+              {serviceType === 'custom'
+                ? 'Mark this order as rush for priority processing.'
+                : pricing
+                ? `Additional $${
+                    serviceType === 'certified' ? pricing.certified.rushExtraPerPage : pricing.general.rushExtraPerPage
+                  } per page`
+                : 'Loading pricing...'}
+            </p>
+          </div>
+        </label>
+      </div>
+
       {/* Language Selection Section */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
+        <h2 className="text-xl font-semibold text-foreground mb-4">
           Translation Languages
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label
               htmlFor="source-language"
-              className="block text-sm font-medium text-gray-700 mb-2"
+              className="block text-sm font-medium text-foreground mb-2"
             >
               Source Language
             </label>
@@ -372,7 +458,7 @@ export function AdminOrderForm() {
           <div>
             <label
               htmlFor="target-language"
-              className="block text-sm font-medium text-gray-700 mb-2"
+              className="block text-sm font-medium text-foreground mb-2"
             >
               Target Language
             </label>
@@ -390,7 +476,7 @@ export function AdminOrderForm() {
           </div>
         </div>
         {sourceLanguage && targetLanguage && (
-          <p className="mt-3 text-sm text-gray-600">
+          <p className="mt-3 text-sm text-muted-foreground">
             Translating from <strong>{getLanguageName(sourceLanguage)}</strong> to{' '}
             <strong>{getLanguageName(targetLanguage)}</strong>
           </p>
@@ -399,7 +485,7 @@ export function AdminOrderForm() {
 
       {/* File Upload Section */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
+        <h2 className="text-xl font-semibold text-foreground mb-4">
           Upload Documents
         </h2>
         <FileUpload
@@ -408,13 +494,27 @@ export function AdminOrderForm() {
         />
       </div>
 
+      {/* Special Instructions */}
+      {uploadedFiles.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold text-foreground mb-2">Special Instructions (Optional)</h2>
+          <Textarea
+            value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            placeholder="Enter any special instructions or requirements for this order..."
+            rows={3}
+            className="w-full"
+          />
+        </div>
+      )}
+
       {/* Document Quality Section */}
       {uploadedFiles.length > 0 && (
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+          <h2 className="text-xl font-semibold text-foreground mb-2">
             Document Quality
           </h2>
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-sm text-muted-foreground mb-4">
             Select the quality of the uploaded documents. This helps optimize text extraction for scanned or photographed documents.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -425,35 +525,35 @@ export function AdminOrderForm() {
                 onClick={() => setOcrQuality(option.value)}
                 className={`p-4 rounded-lg border-2 text-left transition-all ${
                   ocrQuality === option.value
-                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                    ? 'border-primary bg-muted/40 ring-2 ring-primary/30'
+                    : 'border-border hover:border-border/70 hover:bg-muted/30'
                 }`}
               >
                 <div className="flex items-center gap-3 mb-2">
                   <span className="text-2xl">{option.icon}</span>
                   <span className={`font-semibold ${
-                    ocrQuality === option.value ? 'text-blue-900' : 'text-gray-900'
+                    ocrQuality === option.value ? 'text-foreground' : 'text-foreground'
                   }`}>
                     {option.label}
                   </span>
                   {ocrQuality === option.value && (
                     <span className="ml-auto">
-                      <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                      <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                       </svg>
                     </span>
                   )}
                 </div>
                 <p className={`text-sm ${
-                  ocrQuality === option.value ? 'text-blue-700' : 'text-gray-600'
+                  ocrQuality === option.value ? 'text-muted-foreground' : 'text-muted-foreground'
                 }`}>
                   {option.description}
                 </p>
               </button>
             ))}
           </div>
-          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-            <p className="text-sm text-amber-800">
+          <div className="mt-3 p-3 bg-muted/40 border border-border rounded-lg">
+            <p className="text-sm text-muted-foreground">
               <strong>💡 Tip:</strong> If documents are scanned, photographed, or have poor image quality, select &quot;High Quality&quot; for better text recognition accuracy.
             </p>
           </div>
@@ -463,45 +563,73 @@ export function AdminOrderForm() {
       {/* Order Summary */}
       {uploadedFiles.length > 0 && (
         <div className="border-t pt-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
+          <h2 className="text-xl font-semibold text-foreground mb-4">
             Order Summary
           </h2>
           <div className="space-y-3">
             <div className="flex justify-between">
-              <span className="text-gray-600">Translation:</span>
-              <span className="font-medium">
+              <span className="text-muted-foreground">Service Type:</span>
+              <span className="font-medium text-foreground capitalize">{serviceType}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Translation:</span>
+              <span className="font-medium text-foreground">
                 {getLanguageName(sourceLanguage)} → {getLanguageName(targetLanguage)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Number of documents:</span>
-              <span className="font-medium">{uploadedFiles.length}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Total pages:</span>
-              <span className="font-medium">{totalPages} page{totalPages !== 1 ? 's' : ''}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Document quality:</span>
-              <span className="font-medium">
-                {ocrQuality === 'high' ? '✨ High Quality' : '⚡ Standard Quality'}
+              <span className="text-muted-foreground">Document Type:</span>
+              <span className="font-medium text-foreground">
+                {DOCUMENT_DOMAINS.find((d) => d.value === documentDomain)?.label}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Price per page:</span>
-              <span className="font-medium">${PRICE_PER_PAGE}</span>
+              <span className="text-muted-foreground">Delivery:</span>
+              <span className="font-medium text-foreground">{isRush ? '24 hours (Rush)' : '7 days (Standard)'}</span>
             </div>
-            <div className="bg-gray-50 p-3 rounded">
-              <div className="text-sm text-gray-600 mb-1">
-                Calculation: {totalPages} page{totalPages !== 1 ? 's' : ''} × ${PRICE_PER_PAGE} = ${totalAmount.toFixed(2)}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Number of documents:</span>
+              <span className="font-medium text-foreground">{uploadedFiles.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total pages:</span>
+              <span className="font-medium text-foreground">{totalPages} page{totalPages !== 1 ? 's' : ''}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Document quality:</span>
+              <span className="font-medium text-foreground">
+                {ocrQuality === 'high' ? '✨ High Quality' : '⚡ Standard Quality'}
+              </span>
+            </div>
+            {serviceType !== 'custom' && pricing && (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Price per page:</span>
+                  <span className="font-medium text-foreground">
+                    ${serviceType === 'certified' ? pricing.certified.basePerPage : pricing.general.basePerPage}
+                    {isRush && ` + $${serviceType === 'certified' ? pricing.certified.rushExtraPerPage : pricing.general.rushExtraPerPage} (rush)`}
+                  </span>
+                </div>
+                <div className="bg-muted/40 p-3 rounded">
+                  <div className="text-sm text-muted-foreground mb-1">
+                    Calculation: {totalPages} page{totalPages !== 1 ? 's' : ''} × ${(totalAmount / totalPages).toFixed(2)} = ${totalAmount.toFixed(2)}
+                  </div>
+                </div>
+                <div className="border-t pt-3 flex justify-between text-lg font-bold">
+                  <span>Total Amount:</span>
+                  <span>${totalAmount.toFixed(2)}</span>
+                </div>
+              </>
+            )}
+            {serviceType === 'custom' && (
+              <div className="bg-muted/40 border border-border rounded-lg p-3">
+                <p className="text-sm text-muted-foreground">
+                  <strong>Custom Order:</strong> This order will be created as quote-pending. Set the quote amount in Order Management after reviewing requirements.
+                </p>
               </div>
-            </div>
-            <div className="border-t pt-3 flex justify-between text-lg font-bold">
-              <span>Total Amount:</span>
-              <span>${totalAmount.toFixed(2)}</span>
-            </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
-              <p className="text-sm text-blue-800">
+            )}
+            <div className="bg-muted/40 border border-border rounded-lg p-3 mt-4">
+              <p className="text-sm text-muted-foreground">
                 <strong>Admin Note:</strong> This order will be created without taking payment. The client can pay later from their dashboard.
               </p>
             </div>

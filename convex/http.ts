@@ -70,26 +70,17 @@ http.route({
 
       let pageCount = 1;
 
-      // Count pages for PDF files
+      // Count pages for PDF files using Node.js action
       if (file.type === "application/pdf") {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const pdfParse = require("pdf-parse");
-          const pdfData = await pdfParse(buffer);
-          pageCount = pdfData.numpages || 1;
+          // Pass ArrayBuffer directly for Convex bytes type
+          pageCount = await ctx.runAction(api.pdfUtils.countPdfPages, {
+            pdfBuffer: arrayBuffer,
+          });
         } catch (pdfError) {
-          // Fallback: count pages by searching PDF structure
-          try {
-            const pdfString = buffer.toString("binary");
-            const pageTypeMatches = pdfString.match(/\/Type\s*\/Page[\s\/]/g);
-            if (pageTypeMatches && pageTypeMatches.length > 0) {
-              pageCount = pageTypeMatches.length;
-            } else {
-              pageCount = Math.max(1, Math.ceil(file.size / 150000));
-            }
-          } catch {
-            pageCount = Math.max(1, Math.ceil(file.size / 150000));
-          }
+          console.error("PDF page count error:", pdfError);
+          // Fallback: estimate based on file size
+          pageCount = Math.max(1, Math.ceil(file.size / 150000));
         }
       } else if (file.type.startsWith("image/")) {
         pageCount = 1;

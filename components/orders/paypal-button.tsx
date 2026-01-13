@@ -114,6 +114,8 @@ export function PayPalButton({
           // Create order AFTER payment is successful
           const orderResult = await createOrder({
             clerkId: user.id,
+            serviceType: 'general',
+            isRush: false,
             files: filesForOrder,
             totalPages,
             amount,

@@ -73,9 +73,14 @@ export function OrderManagement() {
 
   const uploadTranslatedFiles = useMutation(api.orders.uploadTranslatedFiles);
   const updateOrderStatus = useMutation(api.orders.updateOrderStatus);
+  const setQuoteAmount = useMutation(api.orders.setQuoteAmount);
   const updateTranslationProgress = useMutation(api.translations.updateTranslationProgress);
   const deleteTranslation = useMutation(api.translations.deleteTranslation);
   const deleteTranslatedFile = useMutation(api.orders.deleteTranslatedFile);
+
+  // Quote management state
+  const [quoteAmountInput, setQuoteAmountInput] = useState<string>('');
+  const [isSendingQuote, setIsSendingQuote] = useState(false);
 
   // Subscribe to translation progress
   const translations = useQuery(
@@ -505,119 +510,143 @@ export function OrderManagement() {
     <div className="space-y-6">
       <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
 
-      <h2 className="text-2xl font-bold text-gray-900">Order Management</h2>
+      <h2 className="text-2xl font-bold text-foreground">Order Management</h2>
 
       {/* Orders List */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">All Orders</h3>
-          <p className="text-sm text-gray-500 mt-1">
+      <div className="bg-card text-card-foreground rounded-lg border border-border shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-border">
+          <h3 className="text-lg font-semibold text-foreground">All Orders</h3>
+          <p className="text-sm text-muted-foreground mt-1">
             {orders ? `${orders.length} order${orders.length !== 1 ? 's' : ''} total` : 'Loading...'}
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-border">
+            <thead className="bg-muted/40">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Date of Order
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Order Number
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Amount Paid
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Customer Name
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Customer Email
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Telephone
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Service
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Translation
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Pages
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-card divide-y divide-border">
               {orders === undefined ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-4 text-center text-muted-foreground">
                     Loading...
                   </td>
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-4 text-center text-muted-foreground">
                     No orders found
                   </td>
                 </tr>
               ) : (
                 orders.map((order) => (
-                  <tr key={order._id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <tr key={order._id} className="hover:bg-muted/30">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
                       <div>
                         <div className="font-medium">
                           {format(new Date(order.createdAt), 'MMM d, yyyy')}
                         </div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-muted-foreground">
                           {format(new Date(order.createdAt), 'h:mm a')}
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">
                       {order.orderNumber}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-foreground">
                       ${order.amount.toFixed(2)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
                       {order.userName || '—'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                       {order.userEmail || 'Unknown'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                       {order.userTelephone || '—'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        (order as any).serviceType === 'certified'
+                          ? 'bg-indigo-500/15 text-indigo-300'
+                          : (order as any).serviceType === 'general'
+                          ? 'bg-cyan-500/15 text-cyan-300'
+                          : (order as any).serviceType === 'custom'
+                          ? 'bg-purple-500/15 text-purple-300'
+                          : 'bg-muted text-muted-foreground'
+                      }`}>
+                        {(order as any).serviceType === 'certified' ? 'Certified' : (order as any).serviceType === 'general' ? 'General' : (order as any).serviceType === 'custom' ? 'Custom' : 'General'}
+                      </span>
+                      {(order as any).isRush === true && (
+                        <span className="ml-1 px-2 py-1 rounded text-xs font-medium bg-orange-500/15 text-orange-400">
+                          Rush
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                       <div className="flex items-center">
                         <span className="font-medium">{getSourceLanguageDisplay(order.sourceLanguage, order.detectedSourceLanguage)}</span>
                         <span className="mx-2">→</span>
                         <span className="font-medium">{getLanguageName(order.targetLanguage)}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                       {order.totalPages} {order.totalPages === 1 ? 'page' : 'pages'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <select
                         value={order.status}
                         onChange={(e) => handleStatusChange(order._id, e.target.value)}
-                        className={`text-xs px-2 py-1 rounded-md border ${
+                        className={`text-xs px-2 py-1 rounded-md border border-border bg-background text-foreground ${
                           order.status === 'completed'
-                            ? 'bg-green-50 border-green-200 text-green-800'
+                            ? 'bg-green-500/10 text-green-400'
                             : order.status === 'processing'
-                            ? 'bg-blue-50 border-blue-200 text-blue-800'
+                            ? 'bg-primary/10 text-primary'
                             : order.status === 'paid'
-                            ? 'bg-purple-50 border-purple-200 text-purple-800'
+                            ? 'bg-purple-500/10 text-purple-300'
+                            : order.status === 'quote_pending'
+                            ? 'bg-purple-500/10 text-purple-300'
                             : order.status === 'pending'
-                            ? 'bg-yellow-50 border-yellow-200 text-yellow-800'
-                            : 'bg-red-50 border-red-200 text-red-800'
+                            ? 'bg-yellow-500/10 text-yellow-300'
+                            : 'bg-red-500/10 text-red-400'
                         }`}
                       >
+                        <option value="quote_pending">Quote Pending</option>
                         <option value="pending">Pending</option>
                         <option value="paid">Paid</option>
                         <option value="processing">Processing</option>
@@ -628,7 +657,7 @@ export function OrderManagement() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <button
                         onClick={() => setSelectedOrder(order._id)}
-                        className="text-blue-600 hover:text-blue-900 font-medium"
+                        className="text-primary hover:opacity-90 font-medium"
                       >
                         View & Translate
                       </button>
@@ -643,8 +672,8 @@ export function OrderManagement() {
 
       {/* Order Details & Translation Upload */}
       {selectedOrder && orderDetails && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+        <div className="bg-card text-card-foreground rounded-lg border border-border shadow-sm p-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4">
             Order: {orderDetails.orderNumber}
           </h3>
 
@@ -674,7 +703,132 @@ export function OrderManagement() {
                 <strong>Completed.</strong> Translated files are attached to this order.
               </p>
             </div>
+          ) : orderDetails.status === 'quote_pending' ? (
+            <div className="mb-6 rounded-lg border border-purple-200 bg-purple-50 p-4">
+              <p className="text-sm text-purple-900">
+                <strong>Custom Quote Pending.</strong> This is a custom translation order. Set the quote amount below and send it to the customer.
+              </p>
+            </div>
           ) : null}
+
+          {/* Custom Quote Management */}
+          {orderDetails.status === 'quote_pending' && (orderDetails as any).serviceType === 'custom' && (
+            <div className="mb-6 border border-border rounded-lg p-6 bg-muted/40">
+              <h4 className="font-semibold text-foreground mb-4">Set Custom Quote</h4>
+              
+              {/* Order Info */}
+              <div className="bg-background rounded-lg p-4 mb-4 border border-border">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Service Type:</span>
+                    <span className="ml-2 font-medium text-foreground">Custom Translation</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Total Pages:</span>
+                    <span className="ml-2 font-medium text-foreground">{orderDetails.totalPages}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Rush Requested:</span>
+                    <span className="ml-2 font-medium text-foreground">{(orderDetails as any).isRush ? 'Yes (24h)' : 'No (7 days)'}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Document Type:</span>
+                    <span className="ml-2 font-medium text-foreground capitalize">{(orderDetails as any).documentDomain || 'General'}</span>
+                  </div>
+                </div>
+                {(orderDetails as any).remarks && (
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <span className="text-muted-foreground text-sm font-medium">Special Instructions:</span>
+                    <p className="mt-1 text-sm text-foreground whitespace-pre-wrap">{(orderDetails as any).remarks}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Quote Amount Input */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Quote Amount (USD)
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground text-lg">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={quoteAmountInput}
+                    onChange={(e) => setQuoteAmountInput(e.target.value)}
+                    placeholder="0.00"
+                    className="flex-1 border border-border bg-background text-foreground rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
+                  />
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Enter the total quote amount for this custom translation order.
+                </p>
+              </div>
+
+              {/* Send Quote Button */}
+              <Button
+                onClick={async () => {
+                  if (!user?.id || !selectedOrder) return;
+                  
+                  const amount = parseFloat(quoteAmountInput);
+                  if (isNaN(amount) || amount <= 0) {
+                    setNotice({ title: 'Invalid amount', message: 'Please enter a valid quote amount.' });
+                    return;
+                  }
+
+                  setIsSendingQuote(true);
+                  try {
+                    // Set quote amount in database
+                    await setQuoteAmount({
+                      orderId: selectedOrder,
+                      quoteAmount: amount,
+                      clerkId: user.id,
+                    });
+
+                    // Send quote ready email
+                    const order = orders?.find((o) => o._id === selectedOrder);
+                    if (order) {
+                      await fetch('/api/send-order-confirmation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          kind: 'quote_ready',
+                          orderId: selectedOrder,
+                          orderNumber: order.orderNumber,
+                          amount,
+                          totalPages: order.totalPages,
+                          fileCount: order.files.length,
+                          sourceLanguage: order.sourceLanguage,
+                          targetLanguage: order.targetLanguage,
+                          email: order.userEmail,
+                          customerName: order.userName,
+                        }),
+                      });
+                    }
+
+                    setNotice({
+                      title: 'Quote sent',
+                      message: 'Quote has been set and customer has been notified via email.',
+                    });
+                    setQuoteAmountInput('');
+                  } catch (error) {
+                    console.error('Failed to send quote:', error);
+                    setNotice({
+                      title: 'Failed to send quote',
+                      message: error instanceof Error ? error.message : String(error),
+                    });
+                  } finally {
+                    setIsSendingQuote(false);
+                  }
+                }}
+                disabled={isSendingQuote || !quoteAmountInput || parseFloat(quoteAmountInput) <= 0}
+                className="w-full bg-purple-600 hover:bg-purple-700"
+              >
+                {isSendingQuote ? 'Sending Quote...' : 'Set Quote & Notify Customer'}
+              </Button>
+            </div>
+          )}
 
           {/* Translation Model (recommended) & Domain */}
           {orderDetails.status !== 'pending' && (
@@ -747,7 +901,7 @@ export function OrderManagement() {
 
           {orderDetails.status !== 'pending' && translationProvider === 'openrouter' && (
             <div className="mb-6">
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 OpenRouter model
               </label>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -761,11 +915,11 @@ export function OrderManagement() {
                 <input
                   value={openRouterModel}
                   onChange={(e) => setOpenRouterModel(e.target.value)}
-                  className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-border bg-background text-foreground px-3 py-2 text-sm"
                   placeholder="e.g. anthropic/claude-3.5-sonnet"
                 />
               </div>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Tip: paste any OpenRouter model ID (from your OpenRouter dashboard models list).
               </p>
             </div>
@@ -774,7 +928,7 @@ export function OrderManagement() {
           {/* Original Files with Translate buttons */}
           <div className="mb-6">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="font-medium text-gray-900">Original Files:</h4>
+              <h4 className="font-medium text-foreground">Original Files:</h4>
               {orderDetails.status !== 'pending' && orderDetails.files.length > 1 && (
                 <Button
                   size="sm"
@@ -806,17 +960,17 @@ export function OrderManagement() {
                 return (
                   <div
                     key={index}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                    className="flex items-center justify-between p-3 bg-muted/40 rounded-lg"
                   >
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">{file.fileName}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-sm font-medium text-foreground">{file.fileName}</p>
+                      <p className="text-xs text-muted-foreground">
                         {file.pageCount} page{file.pageCount !== 1 ? 's' : ''}
                       </p>
                       {isTranslating && (
                         <div className="mt-2 space-y-1">
                           <Progress value={progress} className="h-2" />
-                          <p className="text-xs text-gray-600">Translating... {progress}%</p>
+                          <p className="text-xs text-muted-foreground">Translating... {progress}%</p>
                         </div>
                       )}
                       {translation && translation.status === 'review' && !isTranslating && (
@@ -838,7 +992,7 @@ export function OrderManagement() {
                         href={file.fileUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 text-sm"
+                        className="text-primary hover:opacity-90 text-sm"
                       >
                         Download
                       </a>
@@ -869,9 +1023,9 @@ export function OrderManagement() {
 
           {/* Approved Translations Section */}
           {translations && translations.filter((t: any) => t.status === 'approved').length > 0 && (
-            <div className="mb-6 border border-green-200 rounded-lg p-4 bg-green-50">
+            <div className="mb-6 border border-border rounded-lg p-4 bg-muted/40">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="font-medium text-gray-900">
+                <h4 className="font-medium text-foreground">
                   Approved Translations ({translations.filter((t: any) => t.status === 'approved').length})
                 </h4>
                 <div className="flex items-center gap-2">
@@ -887,7 +1041,7 @@ export function OrderManagement() {
                         setSelectedForCombine(new Set(approvedFileNames));
                       }
                     }}
-                    className="text-xs text-blue-600 hover:text-blue-800"
+                    className="text-xs text-primary hover:opacity-90"
                   >
                     {selectedForCombine.size === translations.filter((t: any) => t.status === 'approved').length
                       ? 'Deselect All'
@@ -897,8 +1051,8 @@ export function OrderManagement() {
               </div>
 
               {/* Format Selection */}
-              <div className="mb-4 p-3 bg-white rounded-md border border-gray-200">
-                <label className="block text-xs font-medium text-gray-700 mb-2">
+              <div className="mb-4 p-3 bg-background rounded-md border border-border">
+                <label className="block text-xs font-medium text-foreground mb-2">
                   Download Format:
                 </label>
                 <div className="flex items-center gap-4">
@@ -909,9 +1063,9 @@ export function OrderManagement() {
                       value="docx"
                       checked={exportFormat === 'docx'}
                       onChange={() => setExportFormat('docx')}
-                      className="text-blue-600 focus:ring-blue-500"
+                      className="text-primary focus:ring-primary"
                     />
-                    <span className="text-sm text-gray-700">Word (.docx)</span>
+                    <span className="text-sm text-foreground">Word (.docx)</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -920,9 +1074,9 @@ export function OrderManagement() {
                       value="pdf"
                       checked={exportFormat === 'pdf'}
                       onChange={() => setExportFormat('pdf')}
-                      className="text-blue-600 focus:ring-blue-500"
+                      className="text-primary focus:ring-primary"
                     />
-                    <span className="text-sm text-gray-700">PDF (.pdf)</span>
+                    <span className="text-sm text-foreground">PDF (.pdf)</span>
                   </label>
                 </div>
               </div>
@@ -934,7 +1088,7 @@ export function OrderManagement() {
                   .map((translation: any) => (
                     <div
                       key={translation._id}
-                      className="flex items-center justify-between p-3 bg-white rounded-lg border border-green-100"
+                      className="flex items-center justify-between p-3 bg-background rounded-lg border border-border"
                     >
                       <div className="flex items-center gap-3 flex-1">
                         <input
@@ -951,11 +1105,11 @@ export function OrderManagement() {
                               return next;
                             });
                           }}
-                          className="h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
+                          className="h-4 w-4 text-primary rounded focus:ring-primary"
                         />
                         <div className="flex-1">
-                          <p className="text-sm font-medium text-gray-900">{translation.fileName}</p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-sm font-medium text-foreground">{translation.fileName}</p>
+                          <p className="text-xs text-muted-foreground">
                             {translation.segments.length} segment(s) •{' '}
                             {getLanguageName(translation.targetLanguage)}
                           </p>
@@ -963,9 +1117,9 @@ export function OrderManagement() {
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="text-right">
-                          <span className="text-xs text-green-600 font-medium block">✓ Approved</span>
+                          <span className="text-xs text-green-400 font-medium block">✓ Approved</span>
                           {translation.approvedAt && (
-                            <span className="text-xs text-gray-500 block">
+                            <span className="text-xs text-muted-foreground block">
                               {format(new Date(translation.approvedAt), 'MMM d, yyyy h:mm a')}
                             </span>
                           )}
@@ -982,7 +1136,7 @@ export function OrderManagement() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleDeleteTranslation(translation._id, translation.fileName)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
                         >
                           Delete
                         </Button>
@@ -992,7 +1146,7 @@ export function OrderManagement() {
               </div>
 
               {/* Combined Download Actions */}
-              <div className="flex items-center gap-3 pt-3 border-t border-green-200">
+              <div className="flex items-center gap-3 pt-3 border-t border-border">
                 <Button
                   onClick={handleGenerateCombinedDocument}
                   disabled={selectedForCombine.size === 0 || isGeneratingCombined}
@@ -1016,16 +1170,16 @@ export function OrderManagement() {
           {/* Translated Files (if uploaded) */}
           {orderDetails.translatedFiles && orderDetails.translatedFiles.length > 0 && (
             <div className="mb-6">
-              <h4 className="font-medium text-gray-900 mb-2">Translated Files:</h4>
+              <h4 className="font-medium text-foreground mb-2">Translated Files:</h4>
               <div className="space-y-2">
                 {orderDetails.translatedFiles.map((file: any, index: number) => (
                   <div
                     key={index}
-                    className="flex items-center justify-between p-3 bg-green-50 rounded-lg"
+                    className="flex items-center justify-between p-3 bg-muted/40 rounded-lg"
                   >
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">{file.fileName}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-sm font-medium text-foreground">{file.fileName}</p>
+                      <p className="text-xs text-muted-foreground">
                         {getLanguageName(orderDetails.targetLanguage)}
                         {file.translatedAt && (
                           <span className="ml-2">
@@ -1039,7 +1193,7 @@ export function OrderManagement() {
                         href={file.fileUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 text-sm"
+                        className="text-primary hover:opacity-90 text-sm"
                       >
                         Download
                       </a>
@@ -1047,7 +1201,7 @@ export function OrderManagement() {
                         size="sm"
                         variant="outline"
                         onClick={() => handleDeleteTranslatedFile(file.fileName)}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
                       >
                         Delete
                       </Button>
@@ -1061,7 +1215,7 @@ export function OrderManagement() {
           {/* Upload Translated Files */}
           {orderDetails.status !== 'completed' && (
             <div className="border-t pt-6">
-              <h4 className="font-medium text-gray-900 mb-4">
+              <h4 className="font-medium text-foreground mb-4">
                 Upload Translated Files ({getLanguageName(orderDetails.targetLanguage)}):
               </h4>
               {orderDetails.status === 'pending' && (
@@ -1078,13 +1232,13 @@ export function OrderManagement() {
                   onChange={handleFileSelect}
                   accept=".pdf,image/*"
                   disabled={orderDetails.status === 'pending'}
-                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  className="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/15"
                 />
                 {translatedFiles.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-gray-900">Selected files:</p>
+                    <p className="text-sm font-medium text-foreground">Selected files:</p>
                     {translatedFiles.map((file, index) => (
-                      <p key={index} className="text-sm text-gray-600">
+                      <p key={index} className="text-sm text-muted-foreground">
                         • {file.name}
                       </p>
                     ))}
@@ -1093,7 +1247,7 @@ export function OrderManagement() {
                 <button
                   onClick={handleUploadTranslations}
                   disabled={orderDetails.status === 'pending' || translatedFiles.length === 0 || isUploading}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-primary text-primary-foreground px-6 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isUploading ? 'Uploading...' : 'Upload Translations'}
                 </button>
@@ -1104,7 +1258,7 @@ export function OrderManagement() {
           {/* Translation Review Modal */}
           {reviewingFileIndex !== null && orderDetails && (
             <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-lg shadow-xl max-w-7xl w-full max-h-[90vh] overflow-y-auto p-6">
+              <div className="bg-card text-card-foreground rounded-lg border border-border shadow-xl max-w-7xl w-full max-h-[90vh] overflow-y-auto p-6">
                 <TranslationReview
                   orderId={selectedOrder}
                   fileName={orderDetails.files[reviewingFileIndex].fileName}

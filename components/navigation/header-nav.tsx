@@ -18,7 +18,7 @@ export function HeaderNav() {
         <>
           <Link
             href="/admin"
-            className="text-sm font-medium text-gray-700 hover:text-gray-900"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground"
           >
             Admin Dashboard
           </Link>
@@ -27,13 +27,13 @@ export function HeaderNav() {
         <>
           <Link
             href="/user/new-order"
-            className="text-sm font-medium text-gray-700 hover:text-gray-900"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground"
           >
             New Order
           </Link>
           <Link
             href="/user"
-            className="text-sm font-medium text-gray-700 hover:text-gray-900"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground"
           >
             Dashboard
           </Link>

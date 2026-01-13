@@ -1,3 +1,15 @@
+/**
+ * DEPRECATED: This component is no longer used.
+ * 
+ * Replaced by service-specific order forms:
+ * - components/orders/service-order-form.tsx (unified form for all services)
+ * - app/(dashboard)/user/new-order/certified/page.tsx
+ * - app/(dashboard)/user/new-order/general/page.tsx
+ * - app/(dashboard)/user/new-order/custom/page.tsx
+ * 
+ * Keeping this file for reference only.
+ */
+
 'use client';
 
 import { useState } from 'react';
@@ -104,6 +116,8 @@ export function NewOrderForm() {
 
       const result = await createOrder({
         clerkId: user.id,
+        serviceType: 'general',
+        isRush: false,
         files: filesForOrder,
         totalPages,
         amount: totalAmount,
@@ -143,17 +157,17 @@ export function NewOrderForm() {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 space-y-6">
+    <div className="bg-card text-card-foreground rounded-lg border border-border shadow-sm p-6 space-y-6">
       <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
       {/* Language Selection Section */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
+        <h2 className="text-xl font-semibold text-foreground mb-4">
           Translation Language
         </h2>
         <div>
           <label
             htmlFor="target-language"
-            className="block text-sm font-medium text-gray-700 mb-2"
+            className="block text-sm font-medium text-foreground mb-2"
           >
             Target Language
           </label>
@@ -168,7 +182,7 @@ export function NewOrderForm() {
               </SelectItem>
             ))}
           </Select>
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-sm text-muted-foreground">
             Your documents will be translated to <strong>{getLanguageName(targetLanguage)}</strong>.
           </p>
         </div>
@@ -176,7 +190,7 @@ export function NewOrderForm() {
 
       {/* File Upload Section */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
+        <h2 className="text-xl font-semibold text-foreground mb-4">
           Upload Documents
         </h2>
         <FileUpload
@@ -188,10 +202,10 @@ export function NewOrderForm() {
       {/* Document Quality Section */}
       {uploadedFiles.length > 0 && (
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+          <h2 className="text-xl font-semibold text-foreground mb-2">
             Document Quality
           </h2>
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-sm text-muted-foreground mb-4">
             Select the quality of your uploaded documents. This helps us optimize text extraction for scanned or photographed documents.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -202,35 +216,35 @@ export function NewOrderForm() {
                 onClick={() => setOcrQuality(option.value)}
                 className={`p-4 rounded-lg border-2 text-left transition-all ${
                   ocrQuality === option.value
-                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                    ? 'border-primary bg-muted/40 ring-2 ring-primary/30'
+                    : 'border-border hover:border-border/70 hover:bg-muted/30'
                 }`}
               >
                 <div className="flex items-center gap-3 mb-2">
                   <span className="text-2xl">{option.icon}</span>
                   <span className={`font-semibold ${
-                    ocrQuality === option.value ? 'text-blue-900' : 'text-gray-900'
+                    ocrQuality === option.value ? 'text-foreground' : 'text-foreground'
                   }`}>
                     {option.label}
                   </span>
                   {ocrQuality === option.value && (
                     <span className="ml-auto">
-                      <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                      <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                       </svg>
                     </span>
                   )}
                 </div>
                 <p className={`text-sm ${
-                  ocrQuality === option.value ? 'text-blue-700' : 'text-gray-600'
+                  ocrQuality === option.value ? 'text-muted-foreground' : 'text-muted-foreground'
                 }`}>
                   {option.description}
                 </p>
               </button>
             ))}
           </div>
-          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-            <p className="text-sm text-amber-800">
+          <div className="mt-3 p-3 bg-muted/40 border border-border rounded-lg">
+            <p className="text-sm text-muted-foreground">
               <strong>💡 Tip:</strong> If your documents are scanned, photographed, or have poor image quality, select &quot;High Quality&quot; for better text recognition accuracy.
             </p>
           </div>
@@ -240,36 +254,36 @@ export function NewOrderForm() {
       {/* Order Summary */}
       {uploadedFiles.length > 0 && (
         <div className="border-t pt-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
+          <h2 className="text-xl font-semibold text-foreground mb-4">
             Order Summary
           </h2>
           <div className="space-y-3">
             <div className="flex justify-between">
-              <span className="text-gray-600">Target Language:</span>
-              <span className="font-medium">
+              <span className="text-muted-foreground">Target Language:</span>
+              <span className="font-medium text-foreground">
                 {getLanguageName(targetLanguage)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Number of documents:</span>
-              <span className="font-medium">{uploadedFiles.length}</span>
+              <span className="text-muted-foreground">Number of documents:</span>
+              <span className="font-medium text-foreground">{uploadedFiles.length}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Total pages:</span>
-              <span className="font-medium">{totalPages} page{totalPages !== 1 ? 's' : ''}</span>
+              <span className="text-muted-foreground">Total pages:</span>
+              <span className="font-medium text-foreground">{totalPages} page{totalPages !== 1 ? 's' : ''}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Document quality:</span>
-              <span className="font-medium">
+              <span className="text-muted-foreground">Document quality:</span>
+              <span className="font-medium text-foreground">
                 {ocrQuality === 'high' ? '✨ High Quality' : '⚡ Standard Quality'}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Price per page:</span>
-              <span className="font-medium">${PRICE_PER_PAGE}</span>
+              <span className="text-muted-foreground">Price per page:</span>
+              <span className="font-medium text-foreground">${PRICE_PER_PAGE}</span>
             </div>
-            <div className="bg-gray-50 p-3 rounded">
-              <div className="text-sm text-gray-600 mb-1">
+            <div className="bg-muted/40 p-3 rounded">
+              <div className="text-sm text-muted-foreground mb-1">
                 Calculation: {totalPages} page{totalPages !== 1 ? 's' : ''} × ${PRICE_PER_PAGE} = ${totalAmount.toFixed(2)}
               </div>
             </div>
@@ -285,14 +299,14 @@ export function NewOrderForm() {
       {uploadedFiles.length > 0 && !isProcessing && !createdOrder && (
         <div className="border-t pt-6">
           <div className="mb-4">
-            <p className="text-sm text-gray-600 mb-4">
+            <p className="text-sm text-muted-foreground mb-4">
               Create your order now and pay later. We will start processing after payment is completed.
             </p>
           </div>
           <button
             type="button"
             onClick={handleCreateOrder}
-            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-primary text-primary-foreground px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={!targetLanguage}
           >
             Create Order (Pay Later)
@@ -303,8 +317,8 @@ export function NewOrderForm() {
       {/* Pay now (optional) after order exists */}
       {createdOrder && !isProcessing && (
         <div className="border-t pt-6 space-y-4">
-          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-            <p className="text-sm text-yellow-900">
+          <div className="rounded-lg border border-border bg-muted/40 p-4">
+            <p className="text-sm text-muted-foreground">
               <strong>Order created:</strong> {createdOrder.orderNumber}. Payment is required before we start processing.
               You can pay now below or later from your Orders page.
             </p>
@@ -312,13 +326,13 @@ export function NewOrderForm() {
 
           <a
             href={`/user/orders/${createdOrder.orderId}`}
-            className="block w-full text-center bg-gray-900 text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-800 transition-colors"
+            className="block w-full text-center bg-foreground text-background px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-colors"
           >
             View Order
           </a>
 
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Pay Now (optional)</h3>
+            <h3 className="text-lg font-semibold text-foreground mb-2">Pay Now (optional)</h3>
             <PayPalButton amount={totalAmount} orderId={createdOrder.orderId} onSuccess={handlePaymentSuccess} />
           </div>
         </div>
@@ -328,7 +342,7 @@ export function NewOrderForm() {
         <div className="border-t pt-6">
           <div className="text-center py-8">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Processing your order...</p>
+            <p className="text-muted-foreground">Processing your order...</p>
           </div>
         </div>
       )}

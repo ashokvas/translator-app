@@ -272,7 +272,7 @@ export function TranslationReview({
     return (
       <div className="flex items-center justify-center p-8">
         <div className="text-center">
-          <p className="text-gray-600 mb-4">Loading translation...</p>
+          <p className="text-muted-foreground mb-4">Loading translation...</p>
           <Progress value={0} />
         </div>
       </div>
@@ -291,7 +291,7 @@ export function TranslationReview({
         title="Approve translation?"
       >
         <div className="space-y-4">
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-muted-foreground">
             This will approve the translation and generate a Word document with all translated
             pages.
           </p>
@@ -308,7 +308,7 @@ export function TranslationReview({
 
       <Dialog open={!!notice} onOpenChange={(open) => !open && setNotice(null)} title={notice?.title}>
         <div className="space-y-4">
-          <p className="text-sm text-gray-700 whitespace-pre-wrap">{notice?.message}</p>
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{notice?.message}</p>
           <div className="flex justify-end">
             <Button onClick={() => setNotice(null)}>Close</Button>
           </div>
@@ -318,8 +318,8 @@ export function TranslationReview({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">{fileName}</h2>
-          <p className="text-sm text-gray-600 mt-1">
+          <h2 className="text-2xl font-bold text-foreground">{fileName}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
             {getLanguageName(sourceLanguage)} → {getLanguageName(targetLanguage)}
           </p>
         </div>
@@ -360,14 +360,14 @@ export function TranslationReview({
             return (
               <Card
                 key={segment.id}
-                className={segment.isEdited ? 'border-blue-300 bg-blue-50' : ''}
+                className={segment.isEdited ? 'border-primary/40 bg-muted/40' : ''}
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-medium">
                       Segment {index + 1}
                       {segment.pageNumber && (
-                        <span className="text-gray-500 ml-2">
+                        <span className="text-muted-foreground ml-2">
                           (Page {segment.pageNumber})
                         </span>
                       )}
@@ -379,7 +379,7 @@ export function TranslationReview({
                         </Badge>
                       )}
                       {hasChanges && !isEditing && (
-                        <Badge variant="outline" className="text-xs text-yellow-700">
+                        <Badge variant="outline" className="text-xs text-yellow-300">
                           Unsaved
                         </Badge>
                       )}
@@ -390,17 +390,17 @@ export function TranslationReview({
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {/* Original Text */}
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-2">
+                      <label className="block text-xs font-medium text-foreground mb-2">
                         Original ({getLanguageName(sourceLanguage)})
                       </label>
-                      <div className="p-3 bg-gray-50 rounded-md border border-gray-200 min-h-[100px] overflow-auto">
+                      <div className="p-3 bg-muted/30 rounded-md border border-border min-h-[100px] overflow-auto">
                         <MarkdownTableRenderer text={segment.originalText} />
                       </div>
                     </div>
 
                     {/* Translated Text */}
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-2">
+                      <label className="block text-xs font-medium text-foreground mb-2">
                         Translation ({getLanguageName(targetLanguage)})
                       </label>
                       {isEditing ? (
@@ -410,7 +410,7 @@ export function TranslationReview({
                             onChange={(e) =>
                               handleSegmentChange(segment.id, e.target.value)
                             }
-                            className="min-h-[100px] bg-white"
+                            className="min-h-[100px] bg-background"
                             autoFocus
                           />
                           <div className="flex gap-2">
@@ -441,8 +441,8 @@ export function TranslationReview({
                           <div
                             className={`p-3 rounded-md border min-h-[100px] cursor-text overflow-auto ${
                               hasChanges
-                                ? 'bg-yellow-50 border-yellow-300'
-                                : 'bg-white border-gray-200'
+                                ? 'bg-yellow-500/10 border-yellow-500/30'
+                                : 'bg-background border-border'
                             }`}
                             onClick={() => setEditingSegmentId(segment.id)}
                           >
@@ -483,12 +483,12 @@ export function TranslationReview({
           <CardContent className="pt-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="space-y-2">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Review and edit translations above, then approve when ready.
                 </p>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Model
                     </label>
                     <Select
@@ -516,12 +516,12 @@ export function TranslationReview({
                       </SelectItem>
                       <SelectItem value="google:">Google Cloud Translation</SelectItem>
                     </Select>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       Tip: for latest models, use OpenRouter. Google is a fallback.
                     </p>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Domain
                     </label>
                     <Select value={documentDomain} onValueChange={(v) => setDocumentDomain(v as DocumentDomain)}>
@@ -534,7 +534,7 @@ export function TranslationReview({
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-foreground mb-1">
                     OCR quality
                   </label>
                   <Select value={ocrQuality} onValueChange={(v) => setOcrQuality(v as 'high' | 'low')}>
@@ -545,7 +545,7 @@ export function TranslationReview({
                 {translationProvider === 'openrouter' && (
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-medium text-foreground mb-1">
                         OpenRouter model
                       </label>
                       <Select value={openRouterModel} onValueChange={setOpenRouterModel}>
@@ -560,7 +560,7 @@ export function TranslationReview({
                       <input
                         value={openRouterModel}
                         onChange={(e) => setOpenRouterModel(e.target.value)}
-                        className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm"
+                        className="w-full rounded-md border border-border bg-background text-foreground px-3 py-2 text-sm"
                         placeholder="e.g. anthropic/claude-3.5-sonnet"
                       />
                     </div>
