@@ -18,24 +18,6 @@ export default defineSchema({
     userId: v.id("users"), // Reference to user
     clerkId: v.string(), // Clerk user ID for quick lookup
     orderNumber: v.string(), // Unique order number
-    serviceType: v.optional(
-      v.union(
-        v.literal("certified"),
-        v.literal("general"),
-        v.literal("custom")
-      )
-    ), // Type of translation service (optional for backward compatibility)
-    isRush: v.optional(v.boolean()), // Whether rush service (24-hour delivery) was requested (optional for backward compatibility)
-    documentDomain: v.optional(
-      v.union(
-        v.literal("general"),
-        v.literal("certificate"),
-        v.literal("legal"),
-        v.literal("medical"),
-        v.literal("technical")
-      )
-    ), // Document type/domain selected by user
-    remarks: v.optional(v.string()), // Special instructions or remarks from user
     files: v.array(
       v.object({
         fileName: v.string(),
@@ -60,15 +42,13 @@ export default defineSchema({
       )
     ),
     totalPages: v.number(), // Total pages across all files
-    amount: v.number(), // Total amount in USD (for custom orders, 0 until admin sets quote)
-    quoteAmount: v.optional(v.number()), // Admin-set quote amount for custom orders
+    amount: v.number(), // Total amount in USD
     sourceLanguage: v.string(), // Source language code (may be 'auto' for auto-detect)
     detectedSourceLanguage: v.optional(v.string()), // Actual detected source language (populated when sourceLanguage is 'auto')
     targetLanguage: v.string(), // Target language code
     ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"))), // OCR preprocessing quality for scanned/image documents
     status: v.union(
       v.literal("pending"),
-      v.literal("quote_pending"), // Custom orders awaiting admin quote
       v.literal("paid"),
       v.literal("processing"),
       v.literal("completed"),
@@ -86,16 +66,7 @@ export default defineSchema({
     .index("by_user_id", ["userId"])
     .index("by_clerk_id", ["clerkId"])
     .index("by_order_number", ["orderNumber"])
-    .index("by_status", ["status"])
-    .index("by_service_type", ["serviceType"]),
-
-  // System settings (pricing configuration, etc.)
-  settings: defineTable({
-    key: v.string(), // Setting key (e.g., "pricing")
-    value: v.any(), // Setting value (JSON object)
-    updatedBy: v.optional(v.string()), // Clerk ID of admin who last updated
-    updatedAt: v.number(),
-  }).index("by_key", ["key"]),
+    .index("by_status", ["status"]),
 
   // Translation segments for review and editing
   translations: defineTable({
