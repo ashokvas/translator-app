@@ -9,6 +9,7 @@ import { createOpenAI, openai } from '@ai-sdk/openai';
 import { anthropic } from '@ai-sdk/anthropic';
 import mammoth from 'mammoth';
 import ExcelJS from 'exceljs';
+import sharp from 'sharp';
 import {
   getDefaultDocumentDomain,
   getDefaultTranslationProvider,
@@ -386,7 +387,7 @@ async function translateImage(
   // Prefer vision-based translation for OpenRouter so the model can see layout directly (like ChatGPT upload).
   if (options.provider === 'openrouter') {
     try {
-      const visionPair = await translateImageViaVisionModel({
+      const visionPair = await translateImageViaVisionModelMultiPass({
         image: imageBuf,
         mediaType: headerMediaType.startsWith('image/') ? headerMediaType : 'image/jpeg',
         sourceLanguage,
@@ -394,6 +395,7 @@ async function translateImage(
         domain: options.domain,
         openRouterModel: options.openRouterModel,
         imageDetail: options.ocrQuality === 'low' ? 'low' : 'high',
+        sliceCount: 3,
       });
 
       if (visionPair.originalText.trim() || visionPair.translatedText.trim()) {
@@ -691,7 +693,7 @@ async function translateScannedPdfWithOcr(
     if (options.provider === 'openrouter') {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const visionPair = await translateImageViaVisionModel({
+        const visionPair = await translateImageViaVisionModelMultiPass({
           image: pngBuf,
           mediaType: 'image/png',
           sourceLanguage,
@@ -699,6 +701,7 @@ async function translateScannedPdfWithOcr(
           domain: options.domain,
           openRouterModel: options.openRouterModel,
           imageDetail: options.ocrQuality === 'low' ? 'low' : 'high',
+          sliceCount: 3,
         });
 
         if ((visionPair.originalText || '').trim().length > 0 || (visionPair.translatedText || '').trim().length > 0) {
@@ -753,6 +756,9 @@ async function translateImageViaVisionModel(args: {
   domain: DocumentDomain;
   openRouterModel?: string;
   imageDetail?: 'auto' | 'high' | 'low';
+  visionFocus?: 'full' | 'slice';
+  sliceIndex?: number; // 0-based
+  sliceCount?: number;
 }): Promise<{ originalText: string; translatedText: string }> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -779,6 +785,17 @@ async function translateImageViaVisionModel(args: {
   const abortTimer = setTimeout(() => abortController.abort(), timeoutMs);
 
   // Comprehensive prompt for document extraction and translation - handles all document types
+  const focusNote =
+    args.visionFocus === 'slice'
+      ? [
+          `## CROPPED INPUT (VERTICAL SLICE ${Number(args.sliceIndex ?? 0) + 1} of ${Number(args.sliceCount ?? 1)})`,
+          '- You are ONLY seeing this vertical slice of the page.',
+          '- Extract ALL text visible in this crop.',
+          '- If a cell/row is unreadable, write "[UNREADABLE]" rather than skipping it.',
+          '- Do NOT invent content from other parts of the page that are not visible in this crop.',
+        ].join('\n')
+      : '';
+
   const prompt = [
     `You are translating a document from ${source} to ${target}.`,
     '',
@@ -786,6 +803,15 @@ async function translateImageViaVisionModel(args: {
     '1. CAREFULLY examine the image layout and structure',
     '2. Extract ALL text from the image exactly as it appears',
     '3. Translate with formatting that MIRRORS the original EXACTLY',
+    '',
+    '## CRITICAL: ORIGINAL VS TRANSLATION',
+    '',
+    '- `originalText` MUST be a VERBATIM EXTRACTION of the source document text.',
+    '- DO NOT TRANSLATE in `originalText`.',
+    `- Preserve the original script for ${source} (e.g. keep Chinese characters).`,
+    '- Keep punctuation, numbers, names, and layout markers as-is in `originalText`.',
+    '- `translatedText` MUST be the translation to the target language.',
+    ...(focusNote ? ['', focusNote] : []),
     '',
     '## CRITICAL: PRODUCE PROPERLY ALIGNED TABLES',
     '',
@@ -921,6 +947,10 @@ async function translateImageViaVisionModel(args: {
             '## YOUR TASK:',
             'Reformat the table so all columns align vertically.',
             '',
+            '## DO NOT CHANGE originalText',
+            '- You must keep the provided `originalText` EXACTLY as-is.',
+            '- Only adjust `translatedText` formatting/alignment.',
+            '',
             '## CRITICAL: ALIGNED COLUMNS',
             '',
             'All | characters in a column MUST line up vertically!',
@@ -954,7 +984,10 @@ async function translateImageViaVisionModel(args: {
             '## Output JSON only:',
             '{"originalText": "...", "translatedText": "table with ALIGNED columns"}',
             '',
-            '--- DRAFT TO FIX ---',
+            '--- ORIGINAL (DO NOT MODIFY) ---',
+            originalText,
+            '',
+            '--- TRANSLATION DRAFT TO FIX ---',
             translatedText,
           ].join('\n'),
         });
@@ -992,6 +1025,88 @@ async function translateImageViaVisionModel(args: {
     // Last resort: return raw as translated text for visibility
     return { originalText: '', translatedText: raw };
   }
+}
+
+async function cropVerticalSliceToPng(input: Buffer, sliceIndex: number, sliceCount: number): Promise<Buffer> {
+  const img = sharp(input);
+  const meta = await img.metadata();
+  const width = meta.width ?? 0;
+  const height = meta.height ?? 0;
+  if (!width || !height) throw new Error('Unable to determine image dimensions for cropping');
+
+  const safeCount = Math.max(1, Math.floor(sliceCount));
+  const safeIndex = Math.min(Math.max(0, Math.floor(sliceIndex)), safeCount - 1);
+
+  const baseSliceWidth = Math.floor(width / safeCount);
+  const left = safeIndex * baseSliceWidth;
+  const cropWidth = safeIndex === safeCount - 1 ? Math.max(1, width - left) : Math.max(1, baseSliceWidth);
+
+  return await img
+    .extract({ left, top: 0, width: cropWidth, height })
+    .png()
+    .toBuffer();
+}
+
+function mergeVisionPairs(full: { originalText: string; translatedText: string }, right: { originalText: string; translatedText: string }) {
+  const fullOriginal = String(full.originalText || '').trim();
+  const fullTranslated = String(full.translatedText || '').trim();
+  const rightOriginal = String(right.originalText || '').trim();
+  const rightTranslated = String(right.translatedText || '').trim();
+
+  // If the slice output looks identical, don't duplicate it.
+  const rightSeemsDuplicate =
+    !!rightOriginal &&
+    (fullOriginal.includes(rightOriginal.slice(0, Math.min(200, rightOriginal.length))) ||
+      fullTranslated.includes(rightTranslated.slice(0, Math.min(200, rightTranslated.length))));
+
+  if (!rightOriginal || rightSeemsDuplicate) {
+    return { originalText: fullOriginal, translatedText: fullTranslated };
+  }
+
+  // Keep output simple: append right-side content as an additional block/table.
+  return {
+    originalText: [fullOriginal, rightOriginal].filter(Boolean).join('\n\n'),
+    translatedText: [fullTranslated, rightTranslated].filter(Boolean).join('\n\n'),
+  };
+}
+
+async function translateImageViaVisionModelMultiPass(args: {
+  image: Buffer;
+  mediaType: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  domain: DocumentDomain;
+  openRouterModel?: string;
+  imageDetail?: 'auto' | 'high' | 'low';
+  sliceCount: number;
+}): Promise<{ originalText: string; translatedText: string }> {
+  const full = await translateImageViaVisionModel({ ...args, visionFocus: 'full' });
+
+  // Dense certificates often have 2-4 columns; a single full-page read can miss columns.
+  // Run additional passes over vertical slices (e.g. thirds) and merge results.
+  const slices = Math.max(1, Math.floor(args.sliceCount));
+  let merged = full;
+
+  for (let i = 0; i < slices; i++) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const slicePng = await cropVerticalSliceToPng(args.image, i, slices);
+      // eslint-disable-next-line no-await-in-loop
+      const slice = await translateImageViaVisionModel({
+        ...args,
+        image: slicePng,
+        mediaType: 'image/png',
+        visionFocus: 'slice',
+        sliceIndex: i,
+        sliceCount: slices,
+      });
+      merged = mergeVisionPairs(merged, slice);
+    } catch (err) {
+      console.warn(`[translateImageViaVisionModelMultiPass] slice ${i + 1}/${slices} failed:`, err);
+    }
+  }
+
+  return merged;
 }
 
 /**

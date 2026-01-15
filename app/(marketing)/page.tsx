@@ -50,12 +50,12 @@ export default async function LandingPage() {
               <span className="text-primary">Trust</span>
             </h1>
             <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl leading-relaxed">
-              Fast, accurate, and certified translations in over 100 languages. USCIS accepted. Available 24/7.
+              Fast, accurate, and certified translations in over 100 languages.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 pt-4">
               <Link href="/sign-up">
                 <Button size="lg" className="text-lg px-8 w-full sm:w-auto h-14 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
-                  Get Started Free
+                  Get Started
                   <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                   </svg>

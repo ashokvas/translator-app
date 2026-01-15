@@ -9,7 +9,14 @@ import { cn } from "@/lib/utils"
 function Accordion({
   ...props
 }: React.ComponentProps<typeof AccordionPrimitive.Root>) {
-  return <AccordionPrimitive.Root data-slot="accordion" {...props} />
+  // Radix can generate different IDs server vs client; suppress known hydration warnings.
+  return (
+    <AccordionPrimitive.Root
+      data-slot="accordion"
+      suppressHydrationWarning
+      {...props}
+    />
+  )
 }
 
 function AccordionItem({
@@ -34,6 +41,8 @@ function AccordionTrigger({
     <AccordionPrimitive.Header className="flex">
       <AccordionPrimitive.Trigger
         data-slot="accordion-trigger"
+        // Radix-generated aria-controls/id can differ during hydration.
+        suppressHydrationWarning
         className={cn(
           "focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-start justify-between gap-4 rounded-md py-4 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180",
           className
@@ -55,6 +64,8 @@ function AccordionContent({
   return (
     <AccordionPrimitive.Content
       data-slot="accordion-content"
+      // Radix-generated id/aria-labelledby can differ during hydration.
+      suppressHydrationWarning
       className="data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down overflow-hidden text-sm"
       {...props}
     >

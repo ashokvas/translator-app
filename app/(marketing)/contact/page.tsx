@@ -13,7 +13,7 @@ export default function ContactPage() {
     name: '',
     email: '',
     phone: '',
-    subject: '',
+    subject: 'general',
     message: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,7 +26,7 @@ export default function ContactPage() {
     // Simulate API call
     setTimeout(() => {
       setSubmitted(true);
-      setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
+      setFormData({ name: '', email: '', phone: '', subject: 'general', message: '' });
       setIsSubmitting(false);
     }, 1000);
   };
@@ -115,7 +115,6 @@ export default function ContactPage() {
                       Subject *
                     </Label>
                     <Select value={formData.subject} onValueChange={(value) => handleChange('subject', value)} id="subject">
-                      <SelectItem value="">Select a subject</SelectItem>
                       <SelectItem value="general">General Inquiry</SelectItem>
                       <SelectItem value="quote">Request a Quote</SelectItem>
                       <SelectItem value="support">Customer Support</SelectItem>

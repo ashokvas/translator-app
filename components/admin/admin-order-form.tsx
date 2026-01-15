@@ -85,6 +85,15 @@ export function AdminOrderForm() {
   );
 
   const totalPages = uploadedFiles.reduce((sum, file) => sum + file.pageCount, 0);
+  const unitPricePerPage =
+    pricing && serviceType !== 'custom'
+      ? (serviceType === 'certified' ? pricing.certified.basePerPage : pricing.general.basePerPage) +
+        (isRush
+          ? serviceType === 'certified'
+            ? pricing.certified.rushExtraPerPage
+            : pricing.general.rushExtraPerPage
+          : 0)
+      : undefined;
 
   // Calculate amount based on service type and pricing
   const calculateAmount = () => {
@@ -491,6 +500,7 @@ export function AdminOrderForm() {
         <FileUpload
           uploadedFiles={uploadedFiles}
           onFilesUploaded={setUploadedFiles}
+          pricePerPage={unitPricePerPage}
         />
       </div>
 

@@ -31,7 +31,7 @@
     "ai": "^5.0.115",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "convex": "^1.31.0",
+    "convex": "^1.31.4",
     "date-fns": "^4.1.0",
     "docx": "^9.5.1",
     "exceljs": "^4.4.0",
@@ -51,9 +51,9 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    "@types/node": "^20.19.26",
+    "@types/node": "20.19.29",
     "@types/nodemailer": "^7.0.4",
-    "@types/react": "^19",
+    "@types/react": "19.2.8",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.22",
     "eslint": "^9",

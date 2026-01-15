@@ -20,6 +20,7 @@ interface UploadedFile {
 interface FileUploadProps {
   onFilesUploaded: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
   uploadedFiles: UploadedFile[];
+  pricePerPage?: number;
 }
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
@@ -89,10 +90,11 @@ async function uploadWithProgress(
   });
 }
 
-export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) {
+export function FileUpload({ onFilesUploaded, uploadedFiles, pricePerPage }: FileUploadProps) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [preview, setPreview] = useState<UploadItem | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const unitPricePerPage = pricePerPage ?? 35;
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -279,7 +281,7 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
                           {it.status === 'done' && it.uploaded ? (
                             <>
                               {it.uploaded.pageCount} page{it.uploaded.pageCount !== 1 ? 's' : ''} • $
-                              {(it.uploaded.pageCount * 35).toFixed(2)}
+                              {(it.uploaded.pageCount * unitPricePerPage).toFixed(2)}
                             </>
                           ) : it.status === 'error' ? (
                             <span className="text-red-700">{it.error}</span>
@@ -312,7 +314,7 @@ export function FileUpload({ onFilesUploaded, uploadedFiles }: FileUploadProps) 
                   </p>
                   <p className="text-xs text-gray-500">
                     {formatFileSize(file.fileSize)} • {file.pageCount} page
-                    {file.pageCount !== 1 ? 's' : ''} • ${(file.pageCount * 35).toFixed(2)}
+                    {file.pageCount !== 1 ? 's' : ''} • ${(file.pageCount * unitPricePerPage).toFixed(2)}
                   </p>
                 </div>
                 <button

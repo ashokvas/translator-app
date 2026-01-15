@@ -1,7 +1,51 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse, type NextRequest } from "next/server";
 
-// Clerk must run in Proxy so `auth()` / `currentUser()` work in App Router.
-export default clerkMiddleware();
+const isPublicRoute = createRouteMatcher([
+  '/',
+  '/sign-in(.*)',
+  '/sign-up(.*)',
+  // Marketing pages should be public
+  '/services(.*)',
+  '/pricing(.*)',
+  '/contact(.*)',
+  '/api/webhooks(.*)',
+  // Health check must be public (used by reverse proxies / monitors)
+  '/api/health(.*)',
+  // Avoid Clerk redirect-to-sign-in for fetch() calls; these route handlers already return JSON 401/403.
+  '/api/generate-translated-document(.*)',
+  // Translation API - must be public for cross-subdomain calls (api.translatoraxis.com)
+  // The route handler has its own auth check via auth() and verifies admin role
+  '/api/translate(.*)',
+]);
+
+// Create the Clerk middleware with protected route handling
+const clerkAuth = clerkMiddleware(async (auth, request) => {
+  if (!isPublicRoute(request)) {
+    await auth.protect();
+  }
+});
+
+// Main middleware export - handles OPTIONS BEFORE Clerk to prevent redirect issues
+export default async function middleware(request: NextRequest) {
+  // Handle OPTIONS (CORS preflight) requests FIRST - before any auth
+  // This is critical for cross-origin API calls from api.translatoraxis.com
+  if (request.method === 'OPTIONS') {
+    return new NextResponse(null, {
+      status: 200,
+      headers: {
+        'Access-Control-Allow-Origin': process.env.NEXT_PUBLIC_SITE_URL || 'https://translatoraxis.com',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Max-Age': '86400',
+      },
+    });
+  }
+
+  // For all other requests, use Clerk authentication
+  return clerkAuth(request, {} as any);
+}
 
 export const config = {
   matcher: [
