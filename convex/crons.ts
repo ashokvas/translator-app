@@ -31,10 +31,12 @@ export const processPaymentReminders = internalAction({
         const emailKind = isFinalNotice ? 'final_notice' : 'payment_reminder';
 
         // Call the email API
+        const secret = process.env.EMAIL_WEBHOOK_SECRET;
         const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/send-order-confirmation`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...(secret ? { 'x-email-webhook-secret': secret } : {}),
           },
           body: JSON.stringify({
             kind: emailKind,

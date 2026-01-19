@@ -37,11 +37,13 @@ export const emailConfig = {
 // Helper function to send email
 export async function sendEmail({
   to,
+  bcc,
   subject,
   html,
   text,
 }: {
   to: string;
+  bcc?: string | string[];
   subject: string;
   html: string;
   text?: string;
@@ -50,6 +52,7 @@ export async function sendEmail({
     const info = await emailTransporter.sendMail({
       from: emailConfig.from,
       to,
+      bcc,
       subject,
       html,
       text: text || stripHtml(html), // Fallback to stripped HTML if no text provided
@@ -58,6 +61,7 @@ export async function sendEmail({
     console.log('Email sent successfully:', {
       messageId: info.messageId,
       to,
+      bcc,
       subject,
     });
 

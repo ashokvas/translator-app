@@ -73,6 +73,7 @@ export function OrderManagement() {
 
   const uploadTranslatedFiles = useMutation(api.orders.uploadTranslatedFiles);
   const updateOrderStatus = useMutation(api.orders.updateOrderStatus);
+  const updateOrderPayment = useMutation(api.orders.updateOrderPayment);
   const setQuoteAmount = useMutation(api.orders.setQuoteAmount);
   const updateTranslationProgress = useMutation(api.translations.updateTranslationProgress);
   const deleteTranslation = useMutation(api.translations.deleteTranslation);
@@ -199,6 +200,18 @@ export function OrderManagement() {
   const handleTranslate = async (fileIndex: number) => {
     if (!selectedOrder || !user?.id || !orderDetails) return;
 
+    const canTranslate =
+      orderDetails.status === 'paid' ||
+      orderDetails.status === 'processing' ||
+      orderDetails.status === 'completed';
+    if (!canTranslate) {
+      setNotice({
+        title: 'Payment pending',
+        message: 'Translation is disabled until the order is marked as Paid (or Processing/Completed).',
+      });
+      return;
+    }
+
     const file = orderDetails.files[fileIndex];
     // Add to set of translating files (supports parallel translations)
     setTranslatingFileIndexes((prev) => new Set(prev).add(fileIndex));
@@ -275,8 +288,17 @@ export function OrderManagement() {
   const handleTranslateAll = async () => {
     if (!selectedOrder || !user?.id || !orderDetails) return;
     
-    const canTranslate = orderDetails.status !== 'pending';
-    if (!canTranslate) return;
+    const canTranslate =
+      orderDetails.status === 'paid' ||
+      orderDetails.status === 'processing' ||
+      orderDetails.status === 'completed';
+    if (!canTranslate) {
+      setNotice({
+        title: 'Payment pending',
+        message: 'Translation is disabled until the order is marked as Paid (or Processing/Completed).',
+      });
+      return;
+    }
 
     // Get files that haven't been translated yet or need retranslation
     const filesToTranslate = orderDetails.files
@@ -486,6 +508,26 @@ export function OrderManagement() {
     if (!user?.id) return;
 
     try {
+      if (newStatus === 'quote_pending') {
+        // `updateOrderStatus` doesn't support quote_pending; this is set via custom-order quote flow.
+        setNotice({
+          title: 'Not allowed',
+          message: 'Use “Set Quote & Notify Customer” for custom orders. Status will update automatically.',
+        });
+        return;
+      }
+
+      if (newStatus === 'paid') {
+        // Manual/direct payments can happen outside the app; record a manual marker so translation can proceed.
+        await updateOrderPayment({
+          orderId,
+          paymentId: `manual-admin-${Date.now()}`,
+          paymentStatus: 'COMPLETED',
+        });
+        setNotice({ title: 'Updated', message: 'Order marked as paid.' });
+        return;
+      }
+
       await updateOrderStatus({
         orderId,
         clerkId: user.id,
@@ -682,7 +724,7 @@ export function OrderManagement() {
             <div className="mb-6 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
               <p className="text-sm text-yellow-900">
                 <strong>Step 1 — Payment required.</strong> This order has been created, but the client hasn’t paid yet.
-                Ask the client to pay from their dashboard. Once paid, set status to <strong>Processing</strong> and start translation.
+                Ask the client to pay from their dashboard (or confirm direct payment). Once paid, set status to <strong>Paid</strong> (or <strong>Processing</strong>) and start translation.
               </p>
             </div>
           ) : orderDetails.status === 'paid' ? (
@@ -929,7 +971,7 @@ export function OrderManagement() {
           <div className="mb-6">
             <div className="flex items-center justify-between mb-2">
               <h4 className="font-medium text-foreground">Original Files:</h4>
-              {orderDetails.status !== 'pending' && orderDetails.files.length > 1 && (
+              {orderDetails.files.length > 1 && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -946,7 +988,10 @@ export function OrderManagement() {
                 const progress = translationProgress[index] || 0;
                 // Handle case where translations query is still loading or failed
                 const translation = translations === undefined ? undefined : translations.find((t: any) => t.fileName === file.fileName);
-                const canTranslate = orderDetails.status !== 'pending';
+                const canTranslate =
+                  orderDetails.status === 'paid' ||
+                  orderDetails.status === 'processing' ||
+                  orderDetails.status === 'completed';
                 const showReviewButton =
                   canTranslate &&
                   !!translation &&
@@ -954,7 +999,7 @@ export function OrderManagement() {
 
                 // Always show a translate-style button when allowed (even if a translation already exists).
                 // If a translation exists, it becomes "Retranslate".
-                const showTranslateAction = canTranslate && !isTranslating;
+                const showTranslateAction = !isTranslating;
                 const translateActionLabel = translation ? 'Retranslate' : 'Translate';
 
                 return (
