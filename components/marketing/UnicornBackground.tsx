@@ -84,7 +84,7 @@ export function UnicornBackground() {
   }, [stageTransform]);
 
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden">
+    <div ref={containerRef} className="relative h-full w-full overflow-hidden pointer-events-none">
       <div style={stageStyle}>
         <div data-us-project="aCzfKbVycG4WMSZEeHGv" style={{ width: 1920, height: 1080 }} />
       </div>
