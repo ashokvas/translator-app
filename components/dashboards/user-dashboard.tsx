@@ -74,7 +74,7 @@ export function UserDashboard() {
           <nav className="-mb-px flex space-x-8">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              className={`py-4 px-1 border-b-2 font-medium text-sm cursor-pointer transition-colors ${
                 activeTab === 'overview'
                   ? 'border-primary text-primary'
                   : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border/70'
@@ -84,7 +84,7 @@ export function UserDashboard() {
             </button>
             <button
               onClick={() => setActiveTab('orders')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              className={`py-4 px-1 border-b-2 font-medium text-sm cursor-pointer transition-colors ${
                 activeTab === 'orders'
                   ? 'border-primary text-primary'
                   : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border/70'

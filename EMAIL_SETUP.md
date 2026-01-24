@@ -130,7 +130,7 @@ In your production environment (Vercel, Railway, etc.), add:
 SMTP_HOST=smtpout.secureserver.net
 SMTP_PORT=465
 SMTP_USER=sales@translatoraxis.com
-SMTP_PASSWORD=your_godaddy_password
+SMTP_PASSWORD=Meena@@123
 SMTP_FROM_NAME=Translator Axis
 NEXT_PUBLIC_APP_URL=https://translatoraxis.com
 ```

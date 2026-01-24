@@ -8,6 +8,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -15,6 +16,7 @@ import { format } from 'date-fns';
 import { PayPalButton } from '@/components/orders/paypal-button';
 
 export function OrderDetails({ orderId }: { orderId: string }) {
+  const router = useRouter();
   const { user, isLoaded } = useUser();
 
   const order = useQuery(
@@ -64,9 +66,12 @@ export function OrderDetails({ orderId }: { orderId: string }) {
               Created {format(new Date(order.createdAt), 'MMM d, yyyy')}
             </p>
           </div>
-          <Link href="/user/orders" className="text-blue-600 hover:text-blue-800 font-medium">
+          <button 
+            onClick={() => router.back()}
+            className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer transition-colors"
+          >
             ← Back
-          </Link>
+          </button>
         </div>
 
         {isPaymentRequired && (

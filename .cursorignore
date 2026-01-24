@@ -1,0 +1,30 @@
+# CRITICAL: Ignore all node_modules and backups
+node_modules/
+node_modules_OLD*/
+
+# Ignore Test Reports (very heavy)
+test-results/
+playwright-report/
+e2e/
+__tests__/
+
+# Ignore Assets/Images (AI cannot "read" these, it only wastes memory)
+public/*.png
+public/*.jpg
+public/*.jpeg
+public/*.svg
+public/*.gif
+
+# Ignore Environment/Security files
+.env.local
+certificates/
+
+# Ignore Tooling configs
+.github/
+.vscode/
+.next/
+dist/
+build/
+
+# Ignore external services if they contain many files
+libreoffice-service/
