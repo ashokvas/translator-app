@@ -17,6 +17,7 @@ import type * as orders from "../orders.js";
 import type * as pdfUtils from "../pdfUtils.js";
 import type * as settings from "../settings.js";
 import type * as translations from "../translations.js";
+import type * as usage from "../usage.js";
 import type * as users from "../users.js";
 
 import type {
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   pdfUtils: typeof pdfUtils;
   settings: typeof settings;
   translations: typeof translations;
+  usage: typeof usage;
   users: typeof users;
 }>;
 

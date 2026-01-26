@@ -8,6 +8,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import { OrderManagement } from '@/components/admin/order-management';
 import { AdminOrderForm } from '@/components/admin/admin-order-form';
 import { PricingSettings } from '@/components/admin/pricing-settings';
+import { UsageCost } from '@/components/admin/usage-cost';
 import { NoticeDialog, type NoticeState } from '@/components/ui/notice-dialog';
 
 export function AdminDashboard() {
@@ -30,7 +31,9 @@ export function AdminDashboard() {
     name: string;
     telephone: string;
   } | null>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'orders' | 'new-order' | 'pricing'>('users');
+  const [activeTab, setActiveTab] = useState<
+    'users' | 'orders' | 'new-order' | 'pricing' | 'usage'
+  >('users');
   type UserDoc = NonNullable<typeof allUsers>[number];
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
@@ -158,6 +161,16 @@ export function AdminDashboard() {
               } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
             >
               Pricing Settings
+            </button>
+            <button
+              onClick={() => setActiveTab('usage')}
+              className={`${
+                activeTab === 'usage'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border/70'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Usage & Cost
             </button>
           </nav>
         </div>
@@ -367,6 +380,8 @@ export function AdminDashboard() {
         )}
 
         {activeTab === 'pricing' && <PricingSettings />}
+
+        {activeTab === 'usage' && <UsageCost />}
       </div>
     </div>
   );

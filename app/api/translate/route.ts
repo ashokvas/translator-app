@@ -84,6 +84,13 @@ export async function OPTIONS() {
  * }
  */
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
+  const usageEvents: TranslationUsageEvent[] = [];
+  // Track usage events without affecting translation behavior.
+  const trackUsage = (event: TranslationUsageEvent) => {
+    usageEvents.push(event);
+  };
+
   try {
     // Authenticate admin - supports both cookie-based auth (same domain)
     // and Bearer token auth (cross-subdomain API calls)
@@ -227,6 +234,7 @@ export async function POST(request: NextRequest) {
           googleApiKey,
           openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
           ocrQuality: ocrQualityNormalized,
+          trackUsage,
         });
       } else if (fileType === 'application/pdf') {
         // Handle PDF: Extract text + Translate
@@ -236,6 +244,7 @@ export async function POST(request: NextRequest) {
           googleApiKey,
           openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
           ocrQuality: ocrQualityNormalized,
+          trackUsage,
         });
       } else if (
         fileType.includes('wordprocessingml') ||
@@ -253,6 +262,7 @@ export async function POST(request: NextRequest) {
             googleApiKey,
             openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
             ocrQuality: ocrQualityNormalized,
+            trackUsage,
           }
         );
       } else {
@@ -313,6 +323,40 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      if (usageEvents.length > 0) {
+        try {
+          await convexClient.mutation(api.usage.recordUsageEvents, {
+            orderId: orderId as any,
+            fileName,
+            clerkId: userId,
+            events: usageEvents,
+          });
+        } catch (usageError) {
+          console.warn('Failed to persist translation usage:', usageError);
+        }
+      }
+
+      console.info(
+        '[translation-usage]',
+        JSON.stringify({
+          orderId,
+          fileName,
+          fileType,
+          provider,
+          domain,
+          model:
+            provider === 'openrouter'
+              ? (openRouterModel || process.env.OPENROUTER_TRANSLATION_MODEL || OPENROUTER_DEFAULT_MODEL)
+              : provider === 'openai'
+              ? (process.env.OPENAI_TRANSLATION_MODEL || 'gpt-4o')
+              : provider === 'anthropic'
+              ? (process.env.ANTHROPIC_TRANSLATION_MODEL || 'claude-3-5-sonnet-20240620')
+              : undefined,
+          durationMs: Date.now() - startedAt,
+          events: usageEvents,
+        })
+      );
+
       return jsonWithCors({
         success: true,
         segmentsCount: segments.length,
@@ -331,6 +375,33 @@ export async function POST(request: NextRequest) {
         status: 'pending',
         clerkId: userId,
       });
+
+      if (usageEvents.length > 0) {
+        try {
+          await convexClient.mutation(api.usage.recordUsageEvents, {
+            orderId: orderId as any,
+            fileName,
+            clerkId: userId,
+            events: usageEvents,
+          });
+        } catch (usageError) {
+          console.warn('Failed to persist translation usage:', usageError);
+        }
+      }
+
+      console.warn(
+        '[translation-usage]',
+        JSON.stringify({
+          orderId,
+          fileName,
+          fileType,
+          provider,
+          domain,
+          durationMs: Date.now() - startedAt,
+          events: usageEvents,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
 
       console.error('Translation error:', error);
 
@@ -359,6 +430,14 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error('Translation API error:', error);
+    console.warn(
+      '[translation-usage]',
+      JSON.stringify({
+        durationMs: Date.now() - startedAt,
+        events: usageEvents,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
     return jsonWithCors(
       {
         error: 'Internal server error',
@@ -396,6 +475,7 @@ async function translateImage(
         openRouterModel: options.openRouterModel,
         imageDetail: options.ocrQuality === 'low' ? 'low' : 'high',
         sliceCount: 3,
+        trackUsage: options.trackUsage,
       });
 
       if (visionPair.originalText.trim() || visionPair.translatedText.trim()) {
@@ -420,6 +500,11 @@ async function translateImage(
   const base64Image = imageBuf.toString('base64');
   const ocrFeatureType = options.ocrQuality === 'low' ? 'TEXT_DETECTION' : 'DOCUMENT_TEXT_DETECTION';
 
+  options.trackUsage?.({
+    provider: 'google-vision',
+    kind: 'ocr',
+    requests: 1,
+  });
   const ocrText = await ocrImageBase64(base64Image, ocrFeatureType, options.ocrQuality);
   if (!ocrText.trim()) return [];
 
@@ -442,6 +527,19 @@ interface TranslationOptions {
   googleApiKey?: string;
   openRouterModel?: string;
   ocrQuality?: 'low' | 'high';
+  trackUsage?: (event: TranslationUsageEvent) => void;
+}
+
+interface TranslationUsageEvent {
+  provider: string;
+  kind: 'text' | 'vision' | 'ocr';
+  model?: string;
+  inputChars?: number;
+  outputChars?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  requests?: number;
 }
 
 function chunkTextForTranslation(text: string, maxChunkChars = 4000): string[] {
@@ -702,6 +800,7 @@ async function translateScannedPdfWithOcr(
           openRouterModel: options.openRouterModel,
           imageDetail: options.ocrQuality === 'low' ? 'low' : 'high',
           sliceCount: 3,
+          trackUsage: options.trackUsage,
         });
 
         if ((visionPair.originalText || '').trim().length > 0 || (visionPair.translatedText || '').trim().length > 0) {
@@ -723,6 +822,11 @@ async function translateScannedPdfWithOcr(
     // Fallback: OCR with Google Vision + translate extracted text
     const base64 = pngBuf.toString('base64');
     // eslint-disable-next-line no-await-in-loop
+    options.trackUsage?.({
+      provider: 'google-vision',
+      kind: 'ocr',
+      requests: 1,
+    });
     const ocrText = await ocrImageBase64(base64, ocrFeatureType, options.ocrQuality);
     if (!ocrText || ocrText.length < 5) continue;
     // eslint-disable-next-line no-await-in-loop
@@ -759,6 +863,7 @@ async function translateImageViaVisionModel(args: {
   visionFocus?: 'full' | 'slice';
   sliceIndex?: number; // 0-based
   sliceCount?: number;
+  trackUsage?: (event: TranslationUsageEvent) => void;
 }): Promise<{ originalText: string; translatedText: string }> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -896,6 +1001,17 @@ async function translateImageViaVisionModel(args: {
   });
 
   clearTimeout(abortTimer);
+
+  const usage = (result as any)?.usage;
+  args.trackUsage?.({
+    provider: 'openrouter',
+    kind: 'vision',
+    model,
+    outputChars: (result.text || '').length,
+    promptTokens: usage?.promptTokens,
+    completionTokens: usage?.completionTokens,
+    totalTokens: usage?.totalTokens,
+  });
 
   const raw = String(result.text || '').trim();
   
@@ -1079,6 +1195,7 @@ async function translateImageViaVisionModelMultiPass(args: {
   openRouterModel?: string;
   imageDetail?: 'auto' | 'high' | 'low';
   sliceCount: number;
+  trackUsage?: (event: TranslationUsageEvent) => void;
 }): Promise<{ originalText: string; translatedText: string }> {
   const full = await translateImageViaVisionModel({ ...args, visionFocus: 'full' });
 
@@ -1249,15 +1366,15 @@ async function translateText(
   if (provider === 'google') {
     // Google translation uses `translateTextV3()` which prefers service-account SDK and falls back to API-key REST.
     // With v3 SDK, we can use glossaries for domain-specific terminology.
-    return translateTextGoogle(text, sourceLanguage, targetLanguage, options.domain);
+    return translateTextGoogle(text, sourceLanguage, targetLanguage, options.domain, options.trackUsage);
   }
 
   if (provider === 'openai') {
-    return translateTextOpenAI(text, sourceLanguage, targetLanguage, options.domain);
+    return translateTextOpenAI(text, sourceLanguage, targetLanguage, options.domain, options.trackUsage);
   }
 
   if (provider === 'anthropic') {
-    return translateTextAnthropic(text, sourceLanguage, targetLanguage, options.domain);
+    return translateTextAnthropic(text, sourceLanguage, targetLanguage, options.domain, options.trackUsage);
   }
 
   if (provider === 'openrouter') {
@@ -1266,7 +1383,8 @@ async function translateText(
       sourceLanguage,
       targetLanguage,
       options.domain,
-      options.openRouterModel
+      options.openRouterModel,
+      options.trackUsage
     );
   }
 
@@ -1497,7 +1615,8 @@ async function translateTextGoogle(
   text: string,
   sourceLanguage: string,
   targetLanguage: string,
-  domain?: DocumentDomain
+  domain?: DocumentDomain,
+  trackUsage?: (event: TranslationUsageEvent) => void
 ): Promise<string> {
   try {
     // Handle auto-detect: pass undefined to let v3 auto-detect
@@ -1527,6 +1646,13 @@ async function translateTextGoogle(
     
     // Post-process to restore formatting and structure
     const processed = postProcessGoogleTranslation(text, rawTranslation);
+
+    trackUsage?.({
+      provider: 'google-translate',
+      kind: 'text',
+      inputChars: text.length,
+      outputChars: processed.length,
+    });
     
     return processed;
   } catch (error) {
@@ -1544,7 +1670,8 @@ async function translateTextOpenAI(
   text: string,
   sourceLanguage: string,
   targetLanguage: string,
-  domain: DocumentDomain
+  domain: DocumentDomain,
+  trackUsage?: (event: TranslationUsageEvent) => void
 ): Promise<string> {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('OpenAI is not configured. Please set OPENAI_API_KEY.');
@@ -1595,6 +1722,19 @@ async function translateTextOpenAI(
     ].join('\n'),
   });
 
+  const usage = (result as any)?.usage;
+  const outputText = result.text || text;
+  trackUsage?.({
+    provider: 'openai',
+    kind: 'text',
+    model,
+    inputChars: text.length,
+    outputChars: outputText.length,
+    promptTokens: usage?.promptTokens,
+    completionTokens: usage?.completionTokens,
+    totalTokens: usage?.totalTokens,
+  });
+
   return result.text || text;
 }
 
@@ -1602,7 +1742,8 @@ async function translateTextAnthropic(
   text: string,
   sourceLanguage: string,
   targetLanguage: string,
-  domain: DocumentDomain
+  domain: DocumentDomain,
+  trackUsage?: (event: TranslationUsageEvent) => void
 ): Promise<string> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error('Anthropic is not configured. Please set ANTHROPIC_API_KEY.');
@@ -1675,6 +1816,18 @@ async function translateTextAnthropic(
         system,
         prompt,
       });
+      const usage = (result as any)?.usage;
+      const outputText = result.text || text;
+      trackUsage?.({
+        provider: 'anthropic',
+        kind: 'text',
+        model,
+        inputChars: text.length,
+        outputChars: outputText.length,
+        promptTokens: usage?.promptTokens,
+        completionTokens: usage?.completionTokens,
+        totalTokens: usage?.totalTokens,
+      });
       return result.text || text;
     } catch (err) {
       lastErr = err;
@@ -1698,7 +1851,8 @@ async function translateTextOpenRouter(
   sourceLanguage: string,
   targetLanguage: string,
   domain: DocumentDomain,
-  openRouterModel?: string
+  openRouterModel?: string,
+  trackUsage?: (event: TranslationUsageEvent) => void
 ): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -1786,6 +1940,19 @@ async function translateTextOpenRouter(
   });
 
   clearTimeout(abortTimer);
+
+  const usage = (result as any)?.usage;
+  const outputText = result.text || text;
+  trackUsage?.({
+    provider: 'openrouter',
+    kind: 'text',
+    model,
+    inputChars: text.length,
+    outputChars: outputText.length,
+    promptTokens: usage?.promptTokens,
+    completionTokens: usage?.completionTokens,
+    totalTokens: usage?.totalTokens,
+  });
 
   return result.text || text;
 }

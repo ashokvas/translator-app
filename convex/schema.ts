@@ -148,5 +148,20 @@ export default defineSchema({
   })
     .index("by_order_id", ["orderId"])
     .index("by_status", ["status"]),
+
+  translationUsage: defineTable({
+    orderId: v.id("orders"),
+    fileName: v.string(),
+    provider: v.string(),
+    kind: v.union(v.literal("text"), v.literal("vision"), v.literal("ocr")),
+    model: v.optional(v.string()),
+    inputChars: v.optional(v.number()),
+    outputChars: v.optional(v.number()),
+    promptTokens: v.optional(v.number()),
+    completionTokens: v.optional(v.number()),
+    totalTokens: v.optional(v.number()),
+    requests: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_order_id", ["orderId"]),
 });
 
