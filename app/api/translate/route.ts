@@ -23,10 +23,12 @@ import {
 } from '@/lib/translation-providers';
 import { getLanguageName } from '@/lib/languages';
 import { translateTextV3, performOCR, getGlossaryNameForDomain, detectLanguageV3, type GlossaryConfig } from '@/lib/google-cloud';
+import { performDocumentAiOcr } from '@/lib/document-ai';
 import {
   DEFAULT_PREPROCESSING_OPTIONS,
   AGGRESSIVE_PREPROCESSING_OPTIONS,
   LIGHT_PREPROCESSING_OPTIONS,
+  preprocessImageForOCR,
 } from '@/lib/image-preprocessing';
 
 export const runtime = 'nodejs';
@@ -154,6 +156,8 @@ export async function POST(request: NextRequest) {
       documentDomain,
       openRouterModel,
       ocrQuality,
+      ocrProvider,
+      ocrMultiPass,
     } = body;
 
     if (!orderId || !fileName || !sourceLanguage || !targetLanguage) {
@@ -171,8 +175,13 @@ export async function POST(request: NextRequest) {
       ? documentDomain
       : getDefaultDocumentDomain();
 
-    const ocrQualityNormalized: 'low' | 'high' =
-      ocrQuality === 'low' || ocrQuality === 'high' ? ocrQuality : 'high';
+    const ocrQualityNormalized: 'low' | 'high' | 'enhanced' =
+      ocrQuality === 'low' || ocrQuality === 'high' || ocrQuality === 'enhanced'
+        ? ocrQuality
+        : 'high';
+    const ocrProviderNormalized: 'vision' | 'document_ai' =
+      ocrProvider === 'document_ai' ? 'document_ai' : 'vision';
+    const ocrMultiPassEnabled = Boolean(ocrMultiPass);
 
     // If fileUrl or fileType not provided, fetch from Convex
     if (!fileUrl || !fileType) {
@@ -234,6 +243,8 @@ export async function POST(request: NextRequest) {
           googleApiKey,
           openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
           ocrQuality: ocrQualityNormalized,
+          ocrProvider: ocrProviderNormalized,
+          ocrMultiPass: ocrMultiPassEnabled,
           trackUsage,
         });
       } else if (fileType === 'application/pdf') {
@@ -244,6 +255,8 @@ export async function POST(request: NextRequest) {
           googleApiKey,
           openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
           ocrQuality: ocrQualityNormalized,
+          ocrProvider: ocrProviderNormalized,
+          ocrMultiPass: ocrMultiPassEnabled,
           trackUsage,
         });
       } else if (
@@ -262,6 +275,8 @@ export async function POST(request: NextRequest) {
             googleApiKey,
             openRouterModel: typeof openRouterModel === 'string' ? openRouterModel : undefined,
             ocrQuality: ocrQualityNormalized,
+            ocrProvider: ocrProviderNormalized,
+            ocrMultiPass: ocrMultiPassEnabled,
             trackUsage,
           }
         );
@@ -463,9 +478,39 @@ async function translateImage(
   const imageBuffer = await imageResponse.arrayBuffer();
   const imageBuf = Buffer.from(imageBuffer);
 
+  // If Document AI OCR is selected, skip OpenRouter vision and use Document AI text extraction.
+  if (options.ocrProvider === 'document_ai') {
+    const mimeType = headerMediaType.startsWith('image/') ? headerMediaType : 'image/jpeg';
+    const processedBuffer =
+      options.ocrQuality === 'enhanced'
+        ? await preprocessImageForOCR(imageBuf, AGGRESSIVE_PREPROCESSING_OPTIONS)
+        : imageBuf;
+
+    const docAiResult = await performDocumentAiOcr(processedBuffer, mimeType);
+    if (!docAiResult.text.trim()) return [];
+
+    options.trackUsage?.({
+      provider: 'google-document-ai',
+      kind: 'ocr',
+      requests: docAiResult.pageCount,
+    });
+
+    const translatedText = await translateText(docAiResult.text, sourceLanguage, targetLanguage, options);
+    return [
+      {
+        id: `img-docai-${Date.now()}`,
+        originalText: docAiResult.text,
+        translatedText,
+        isEdited: false,
+        order: 0,
+      },
+    ];
+  }
+
   // Prefer vision-based translation for OpenRouter so the model can see layout directly (like ChatGPT upload).
   if (options.provider === 'openrouter') {
     try {
+      const sliceCount = options.ocrMultiPass ? 5 : 3;
       const visionPair = await translateImageViaVisionModelMultiPass({
         image: imageBuf,
         mediaType: headerMediaType.startsWith('image/') ? headerMediaType : 'image/jpeg',
@@ -474,7 +519,7 @@ async function translateImage(
         domain: options.domain,
         openRouterModel: options.openRouterModel,
         imageDetail: options.ocrQuality === 'low' ? 'low' : 'high',
-        sliceCount: 3,
+        sliceCount,
         trackUsage: options.trackUsage,
       });
 
@@ -503,9 +548,14 @@ async function translateImage(
   options.trackUsage?.({
     provider: 'google-vision',
     kind: 'ocr',
-    requests: 1,
+    requests: options.ocrMultiPass ? 2 : 1,
   });
-  const ocrText = await ocrImageBase64(base64Image, ocrFeatureType, options.ocrQuality);
+  const ocrText = await ocrImageBase64(
+    base64Image,
+    ocrFeatureType,
+    options.ocrQuality,
+    options.ocrMultiPass
+  );
   if (!ocrText.trim()) return [];
 
   const translatedText = await translateText(ocrText, sourceLanguage, targetLanguage, options);
@@ -526,7 +576,9 @@ interface TranslationOptions {
   domain: DocumentDomain;
   googleApiKey?: string;
   openRouterModel?: string;
-  ocrQuality?: 'low' | 'high';
+  ocrQuality?: 'low' | 'high' | 'enhanced';
+  ocrProvider?: 'vision' | 'document_ai';
+  ocrMultiPass?: boolean;
   trackUsage?: (event: TranslationUsageEvent) => void;
 }
 
@@ -574,6 +626,23 @@ function chunkTextForTranslation(text: string, maxChunkChars = 4000): string[] {
   return chunks.filter((c) => c.trim().length > 0);
 }
 
+function mergeOcrText(primary: string, secondary: string): string {
+  const primaryLines = primary.split('\n').map((line) => line.trim()).filter(Boolean);
+  const secondaryLines = secondary.split('\n').map((line) => line.trim()).filter(Boolean);
+  const seen = new Set(primaryLines.map((line) => line.toLowerCase()));
+  const merged = [...primaryLines];
+
+  for (const line of secondaryLines) {
+    const key = line.toLowerCase();
+    if (!seen.has(key)) {
+      merged.push(line);
+      seen.add(key);
+    }
+  }
+
+  return merged.join('\n');
+}
+
 /**
  * OCR using Google Cloud Vision API (SDK)
  * Uses the official @google-cloud/vision SDK for better accuracy and features
@@ -582,14 +651,17 @@ function chunkTextForTranslation(text: string, maxChunkChars = 4000): string[] {
 async function ocrImageBase64(
   base64Image: string,
   featureType: 'TEXT_DETECTION' | 'DOCUMENT_TEXT_DETECTION',
-  ocrQuality: 'low' | 'high' = 'high'
+  ocrQuality: 'low' | 'high' | 'enhanced' = 'high',
+  ocrMultiPass = false
 ): Promise<string> {
   try {
     // Select preprocessing options based on quality setting
     // 'high' quality = aggressive preprocessing for better OCR on poor images
     // 'low' quality = light preprocessing for faster processing
     const preprocessingOptions =
-      ocrQuality === 'high'
+      ocrQuality === 'enhanced'
+        ? AGGRESSIVE_PREPROCESSING_OPTIONS
+        : ocrQuality === 'high'
         ? DEFAULT_PREPROCESSING_OPTIONS
         : LIGHT_PREPROCESSING_OPTIONS;
 
@@ -603,7 +675,19 @@ async function ocrImageBase64(
       console.log('[OCR] Image was preprocessed for better accuracy');
     }
 
-    return result.text;
+    if (!ocrMultiPass) {
+      return result.text;
+    }
+
+    // Second pass with aggressive preprocessing to catch missed text.
+    const secondPass = await performOCR(
+      Buffer.from(base64Image, 'base64'),
+      featureType,
+      AGGRESSIVE_PREPROCESSING_OPTIONS
+    );
+
+    const merged = mergeOcrText(result.text, secondPass.text);
+    return merged;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Vision API error: ${message}`);
@@ -679,6 +763,39 @@ async function translatePDF(
   }
 
   if (segments.length === 0) {
+    if (options.ocrProvider === 'document_ai') {
+      try {
+        const docAiResult = await performDocumentAiOcr(pdfBuffer, 'application/pdf');
+        if (docAiResult.text.trim()) {
+          options.trackUsage?.({
+            provider: 'google-document-ai',
+            kind: 'ocr',
+            requests: docAiResult.pageCount,
+          });
+
+          const translatedText = await translateText(
+            docAiResult.text,
+            sourceLanguage,
+            targetLanguage,
+            options
+          );
+
+          return [
+            {
+              id: `pdf-docai-${Date.now()}`,
+              originalText: docAiResult.text,
+              translatedText,
+              isEdited: false,
+              pageNumber: 1,
+              order: 0,
+            },
+          ];
+        }
+      } catch (err) {
+        console.warn('[translatePDF] Document AI OCR failed:', err);
+      }
+    }
+
     // Scanned/image-only PDF: render pages -> Vision OCR -> translate
     try {
       const ocrSegments = await translateScannedPdfWithOcr(
@@ -825,9 +942,14 @@ async function translateScannedPdfWithOcr(
     options.trackUsage?.({
       provider: 'google-vision',
       kind: 'ocr',
-      requests: 1,
+      requests: options.ocrMultiPass ? 2 : 1,
     });
-    const ocrText = await ocrImageBase64(base64, ocrFeatureType, options.ocrQuality);
+    const ocrText = await ocrImageBase64(
+      base64,
+      ocrFeatureType,
+      options.ocrQuality,
+      options.ocrMultiPass
+    );
     if (!ocrText || ocrText.length < 5) continue;
     // eslint-disable-next-line no-await-in-loop
     const translatedText = await translateText(ocrText, sourceLanguage, targetLanguage, options);

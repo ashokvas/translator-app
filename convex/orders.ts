@@ -37,7 +37,7 @@ export const createOrder = mutation({
     amount: v.number(),
     sourceLanguage: v.string(),
     targetLanguage: v.string(),
-    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"))), // OCR preprocessing quality
+    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"), v.literal("enhanced"))), // OCR preprocessing quality
   },
   handler: async (ctx, args) => {
     // Find user by Clerk ID

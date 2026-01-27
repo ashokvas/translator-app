@@ -86,7 +86,7 @@ export const upsertTranslation = mutation({
       )
     ),
     openRouterModel: v.optional(v.string()),
-    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"))),
+    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"), v.literal("enhanced"))),
     segments: v.array(
       v.object({
         id: v.string(),
@@ -140,7 +140,7 @@ export const upsertTranslation = mutation({
         translationProvider?: "google" | "openai" | "anthropic" | "openrouter";
         documentDomain?: "general" | "certificate" | "legal" | "medical" | "technical";
         openRouterModel?: string;
-        ocrQuality?: "low" | "high";
+        ocrQuality?: "low" | "high" | "enhanced";
       } = {
         segments: args.segments,
         status: args.status,

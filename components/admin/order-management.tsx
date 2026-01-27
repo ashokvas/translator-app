@@ -55,7 +55,9 @@ export function OrderManagement() {
   const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('openrouter');
   const [documentDomain, setDocumentDomain] = useState<DocumentDomain>('general');
   const [openRouterModel, setOpenRouterModel] = useState<string>('openai/gpt-5.2');
-  const [ocrQuality, setOcrQuality] = useState<'high' | 'low'>('high');
+  const [ocrProvider, setOcrProvider] = useState<'vision' | 'document_ai'>('vision');
+  const [ocrQuality, setOcrQuality] = useState<'high' | 'low' | 'enhanced'>('high');
+  const [ocrMultiPass, setOcrMultiPass] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   // Approved files selection for combined export
   const [selectedForCombine, setSelectedForCombine] = useState<Set<string>>(new Set());
@@ -243,6 +245,8 @@ export function OrderManagement() {
           documentDomain,
           openRouterModel: translationProvider === 'openrouter' ? openRouterModel : undefined,
           ocrQuality,
+          ocrProvider,
+          ocrMultiPass,
         }),
       });
 
@@ -929,15 +933,42 @@ export function OrderManagement() {
           {orderDetails.status !== 'pending' && (
             <div className="mb-6">
               <label className="block text-xs font-medium text-gray-700 mb-1">
+                OCR provider
+              </label>
+              <Select value={ocrProvider} onValueChange={(v) => setOcrProvider(v as 'vision' | 'document_ai')}>
+                <SelectItem value="vision">Google Vision OCR</SelectItem>
+                <SelectItem value="document_ai">Google Document AI OCR (best for poor-quality scans)</SelectItem>
+              </Select>
+              <p className="mt-1 text-xs text-gray-500">
+                Document AI is more accurate on faint or complex scans, but costs more.
+              </p>
+            </div>
+          )}
+
+          {orderDetails.status !== 'pending' && (
+            <div className="mb-6">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
                 OCR quality
               </label>
-              <Select value={ocrQuality} onValueChange={(v) => setOcrQuality(v as 'high' | 'low')}>
+              <Select value={ocrQuality} onValueChange={(v) => setOcrQuality(v as 'high' | 'low' | 'enhanced')}>
                 <SelectItem value="high">High (recommended for scans)</SelectItem>
-                <SelectItem value="low">Low (faster / cleaner simple images)</SelectItem>
+                <SelectItem value="enhanced">Enhanced (best for poor scans)</SelectItem>
+                <SelectItem value="low">Low (faster / clean images)</SelectItem>
               </Select>
               <p className="mt-1 text-xs text-gray-500">
                 Applies to scanned PDFs/images (OCR). Text PDFs/DOCX/XLSX are unaffected.
               </p>
+              {ocrProvider === 'vision' && (
+                <label className="mt-3 flex items-center gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={ocrMultiPass}
+                    onChange={(e) => setOcrMultiPass(e.target.checked)}
+                    className="h-3.5 w-3.5 text-primary"
+                  />
+                  Extra OCR pass (slower, better for missing text)
+                </label>
+              )}
             </div>
           )}
 

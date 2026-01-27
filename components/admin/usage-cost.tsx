@@ -27,6 +27,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   'google-translate': 'Google Translate',
   'google-vision': 'Google Vision',
+  'google-document-ai': 'Google Document AI',
 };
 
 const COST_RATES = {
@@ -48,6 +49,9 @@ const COST_RATES = {
   'google-vision': {
     perRequest: Number(process.env.NEXT_PUBLIC_GOOGLE_VISION_PER_REQUEST || 0),
   },
+  'google-document-ai': {
+    perRequest: Number(process.env.NEXT_PUBLIC_GOOGLE_DOCUMENT_AI_PER_PAGE || 0),
+  },
 };
 
 const PROVIDER_PRICING_URLS: Record<string, string> = {
@@ -56,6 +60,7 @@ const PROVIDER_PRICING_URLS: Record<string, string> = {
   anthropic: 'https://claude.com/pricing',
   'google-translate': 'https://cloud.google.com/translate/pricing',
   'google-vision': 'https://cloud.google.com/vision/pricing',
+  'google-document-ai': 'https://cloud.google.com/document-ai/pricing',
 };
 
 const formatCurrency = (value: number | null) => {
@@ -387,7 +392,7 @@ export function UsageCost() {
             `NEXT_PUBLIC_OPENROUTER_COMPLETION_PER_M_TOKEN`, `NEXT_PUBLIC_OPENAI_PROMPT_PER_M_TOKEN`,
             `NEXT_PUBLIC_OPENAI_COMPLETION_PER_M_TOKEN`, `NEXT_PUBLIC_ANTHROPIC_PROMPT_PER_M_TOKEN`,
             `NEXT_PUBLIC_ANTHROPIC_COMPLETION_PER_M_TOKEN`, `NEXT_PUBLIC_GOOGLE_TRANSLATE_PER_M_CHAR`,
-            `NEXT_PUBLIC_GOOGLE_VISION_PER_REQUEST`.
+            `NEXT_PUBLIC_GOOGLE_VISION_PER_REQUEST`, `NEXT_PUBLIC_GOOGLE_DOCUMENT_AI_PER_PAGE`.
           </p>
         </div>
       )}

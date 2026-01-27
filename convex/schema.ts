@@ -65,7 +65,7 @@ export default defineSchema({
     sourceLanguage: v.string(), // Source language code (may be 'auto' for auto-detect)
     detectedSourceLanguage: v.optional(v.string()), // Actual detected source language (populated when sourceLanguage is 'auto')
     targetLanguage: v.string(), // Target language code
-    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"))), // OCR preprocessing quality for scanned/image documents
+    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"), v.literal("enhanced"))), // OCR preprocessing quality for scanned/image documents
     status: v.union(
       v.literal("pending"),
       v.literal("quote_pending"), // Custom orders awaiting admin quote
@@ -120,7 +120,7 @@ export default defineSchema({
       )
     ),
     openRouterModel: v.optional(v.string()),
-    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"))),
+    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"), v.literal("enhanced"))),
     segments: v.array(
       v.object({
         id: v.string(), // Unique segment ID
