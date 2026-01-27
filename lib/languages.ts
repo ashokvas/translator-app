@@ -37,6 +37,7 @@ export const LANGUAGES: readonly LanguageOption[] = [
   { code: 'et', name: 'Estonian', flag: '🇪🇪' },
   { code: 'ga', name: 'Irish', flag: '🇮🇪' },
   { code: 'mt', name: 'Maltese', flag: '🇲🇹' },
+  { code: 'fa', name: 'Persian (Farsi)', flag: '🇮🇷' },
 ] as const;
 
 export function getLanguageName(code: string): string {

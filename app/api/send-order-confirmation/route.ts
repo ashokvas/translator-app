@@ -4,7 +4,7 @@ import { getEmailTemplate, type EmailKind } from '@/lib/email-templates';
 import { sendEmail } from '@/lib/email';
 
 const INTERNAL_BCC_RECIPIENTS = [
-  'admin@translationaxis.com',
+  'admin@translatoraxis.com',
   'ashokvas@gmail.com',
   'sunilvaswani1957@proton.me',
 ] as const;
