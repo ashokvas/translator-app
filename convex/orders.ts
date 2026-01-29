@@ -304,9 +304,25 @@ export const uploadTranslatedFiles = mutation({
       translatedAt: now,
     }));
 
-    // Update order with translated files and mark as completed
+    // Merge with existing translated files
+    // Replace files with the same originalFileName (for re-translations)
+    // Keep files from other source documents
+    const existingTranslatedFiles = order.translatedFiles || [];
+    const newOriginalFileNames = new Set(
+      translatedFilesWithTimestamp.map((f) => f.originalFileName)
+    );
+
+    // Remove old versions of files being re-translated
+    const filteredExistingFiles = existingTranslatedFiles.filter(
+      (file) => !newOriginalFileNames.has(file.originalFileName)
+    );
+
+    // Combine: keep other files + add new/updated files
+    const mergedTranslatedFiles = [...filteredExistingFiles, ...translatedFilesWithTimestamp];
+
+    // Update order with merged translated files and mark as completed
     await ctx.db.patch(args.orderId, {
-      translatedFiles: translatedFilesWithTimestamp,
+      translatedFiles: mergedTranslatedFiles,
       status: "completed",
       updatedAt: now,
     });
