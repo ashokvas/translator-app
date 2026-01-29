@@ -235,7 +235,7 @@ export const updateTranslationSegment = mutation({
 });
 
 /**
- * Approve translation (mark as approved)
+ * Approve translation (mark as approved and create version snapshot)
  */
 export const approveTranslation = mutation({
   args: {
@@ -253,14 +253,49 @@ export const approveTranslation = mutation({
       throw new Error("Only admins can approve translations");
     }
 
+    // Get the current translation
+    const translation = await ctx.db.get(args.translationId);
+    if (!translation) {
+      throw new Error("Translation not found");
+    }
+
+    // Get the highest version number for this translation
+    const existingVersions = await ctx.db
+      .query("translationVersions")
+      .withIndex("by_translation_id", (q) => q.eq("translationId", args.translationId))
+      .collect();
+
+    const versionNumber = existingVersions.length > 0
+      ? Math.max(...existingVersions.map(v => v.versionNumber)) + 1
+      : 1;
+
     const now = Date.now();
+
+    // Create a version snapshot
+    const versionId = await ctx.db.insert("translationVersions", {
+      translationId: args.translationId,
+      versionNumber,
+      segments: translation.segments,
+      translationProvider: translation.translationProvider,
+      documentDomain: translation.documentDomain,
+      openRouterModel: translation.openRouterModel,
+      ocrQuality: translation.ocrQuality,
+      sourceLanguage: translation.sourceLanguage,
+      targetLanguage: translation.targetLanguage,
+      approvedBy: args.clerkId,
+      approvedAt: now,
+      createdAt: now,
+    });
+
+    // Update the translation record with approval status and reference to latest version
     await ctx.db.patch(args.translationId, {
       status: "approved",
       approvedAt: now,
+      latestVersionId: versionId,
       updatedAt: now,
     });
 
-    return { success: true };
+    return { success: true, versionId, versionNumber };
   },
 });
 
@@ -343,6 +378,101 @@ export const updateTranslationProgress = mutation({
     }
 
     await ctx.db.patch(args.translationId, updates);
+
+    return { success: true };
+  },
+});
+
+/**
+ * Get version history for a translation
+ */
+export const getTranslationVersions = query({
+  args: {
+    translationId: v.id("translations"),
+    clerkId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Check if admin
+    const admin = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+
+    if (!admin || admin.role !== "admin") {
+      throw new Error("Only admins can view translation versions");
+    }
+
+    const versions = await ctx.db
+      .query("translationVersions")
+      .withIndex("by_translation_id", (q) => q.eq("translationId", args.translationId))
+      .collect();
+
+    // Sort by version number descending (newest first)
+    return versions.sort((a, b) => b.versionNumber - a.versionNumber);
+  },
+});
+
+/**
+ * Get a specific translation version
+ */
+export const getTranslationVersion = query({
+  args: {
+    versionId: v.id("translationVersions"),
+    clerkId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Check if admin
+    const admin = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+
+    if (!admin || admin.role !== "admin") {
+      throw new Error("Only admins can view translation versions");
+    }
+
+    const version = await ctx.db.get(args.versionId);
+    return version;
+  },
+});
+
+/**
+ * Restore a previous version (copy segments from version back to translation)
+ */
+export const restoreTranslationVersion = mutation({
+  args: {
+    translationId: v.id("translations"),
+    versionId: v.id("translationVersions"),
+    clerkId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Check if admin
+    const admin = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+
+    if (!admin || admin.role !== "admin") {
+      throw new Error("Only admins can restore translation versions");
+    }
+
+    // Get the version to restore
+    const version = await ctx.db.get(args.versionId);
+    if (!version) {
+      throw new Error("Version not found");
+    }
+
+    // Verify this version belongs to the translation
+    if (version.translationId !== args.translationId) {
+      throw new Error("Version does not belong to this translation");
+    }
+
+    // Update the translation with the version's segments
+    await ctx.db.patch(args.translationId, {
+      segments: version.segments,
+      status: "review", // Set back to review status after restoring
+      updatedAt: Date.now(),
+    });
 
     return { success: true };
   },

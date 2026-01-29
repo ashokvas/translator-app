@@ -143,11 +143,55 @@ export default defineSchema({
     sourceLanguage: v.string(),
     targetLanguage: v.string(),
     approvedAt: v.optional(v.number()), // Timestamp when translation was approved
+    latestVersionId: v.optional(v.id("translationVersions")), // Reference to the current approved version
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_order_id", ["orderId"])
     .index("by_status", ["status"]),
+
+  // Version history for approved translations
+  translationVersions: defineTable({
+    translationId: v.id("translations"), // Reference to parent translation
+    versionNumber: v.number(), // Sequential version number (1, 2, 3, ...)
+    segments: v.array(
+      v.object({
+        id: v.string(),
+        originalText: v.string(),
+        translatedText: v.string(),
+        isEdited: v.boolean(),
+        editedAt: v.optional(v.number()),
+        pageNumber: v.optional(v.number()),
+        order: v.number(),
+      })
+    ),
+    translationProvider: v.optional(
+      v.union(
+        v.literal("google"),
+        v.literal("openai"),
+        v.literal("anthropic"),
+        v.literal("openrouter")
+      )
+    ),
+    documentDomain: v.optional(
+      v.union(
+        v.literal("general"),
+        v.literal("certificate"),
+        v.literal("legal"),
+        v.literal("medical"),
+        v.literal("technical")
+      )
+    ),
+    openRouterModel: v.optional(v.string()),
+    ocrQuality: v.optional(v.union(v.literal("low"), v.literal("high"), v.literal("enhanced"))),
+    sourceLanguage: v.string(),
+    targetLanguage: v.string(),
+    approvedBy: v.string(), // Clerk ID of admin who approved this version
+    approvedAt: v.number(), // Timestamp when this version was approved
+    createdAt: v.number(),
+  })
+    .index("by_translation_id", ["translationId"])
+    .index("by_translation_and_version", ["translationId", "versionNumber"]),
 
   translationUsage: defineTable({
     orderId: v.id("orders"),

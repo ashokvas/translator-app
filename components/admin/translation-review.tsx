@@ -58,6 +58,8 @@ export function TranslationReview({
   const [isApproving, setIsApproving] = useState(false);
   const [isRetranslating, setIsRetranslating] = useState(false);
   const [notice, setNotice] = useState<{ title: string; message: string } | null>(null);
+  const [selectedVersionId, setSelectedVersionId] = useState<Id<'translationVersions'> | null>(null);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
 
   const translation = useQuery(
     api.translations.getTranslationByFile,
@@ -70,8 +72,29 @@ export function TranslationReview({
       : 'skip'
   );
 
+  const versionHistory = useQuery(
+    api.translations.getTranslationVersions,
+    user?.id && translation?._id
+      ? {
+          translationId: translation._id,
+          clerkId: user.id,
+        }
+      : 'skip'
+  );
+
+  const selectedVersion = useQuery(
+    api.translations.getTranslationVersion,
+    user?.id && selectedVersionId
+      ? {
+          versionId: selectedVersionId,
+          clerkId: user.id,
+        }
+      : 'skip'
+  );
+
   const updateSegment = useMutation(api.translations.updateTranslationSegment);
   const approveTranslation = useMutation(api.translations.approveTranslation);
+  const restoreVersion = useMutation(api.translations.restoreTranslationVersion);
 
   // Initialize local edits from translation data
   useEffect(() => {
@@ -196,6 +219,32 @@ export function TranslationReview({
       setIsApproveDialogOpen(false);
     }
   }, [user?.id, translation, approveTranslation, onApprove, orderId, fileName, isApproving]);
+
+  const handleRestoreVersion = useCallback(async (versionId: Id<'translationVersions'>) => {
+    if (!user?.id || !translation) return;
+
+    try {
+      await restoreVersion({
+        translationId: translation._id,
+        versionId,
+        clerkId: user.id,
+      });
+
+      setSelectedVersionId(null);
+      setShowVersionHistory(false);
+
+      setNotice({
+        title: 'Version Restored',
+        message: 'Previous version has been restored. Please review and approve again if needed.',
+      });
+    } catch (error) {
+      console.error('Failed to restore version:', error);
+      setNotice({
+        title: 'Restore failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [user?.id, translation, restoreVersion]);
 
   const handleRetranslate = useCallback(async () => {
     if (!user?.id || isRetranslating) return;
@@ -579,8 +628,8 @@ export function TranslationReview({
                 )}
               </div>
               <div className="flex gap-3">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={handleRetranslate}
                   disabled={isRetranslating || isApproving}
                 >
@@ -596,6 +645,144 @@ export function TranslationReview({
               </div>
             </div>
           </CardContent>
+        </Card>
+      )}
+
+      {/* Version History */}
+      {versionHistory && versionHistory.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">Version History</CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowVersionHistory(!showVersionHistory)}
+              >
+                {showVersionHistory ? 'Hide' : 'Show'} ({versionHistory.length})
+              </Button>
+            </div>
+          </CardHeader>
+          {showVersionHistory && (
+            <CardContent>
+              <div className="space-y-3">
+                {versionHistory.map((version: any) => {
+                  const isLatest = translation?.latestVersionId === version._id;
+                  const isSelected = selectedVersionId === version._id;
+
+                  return (
+                    <div
+                      key={version._id}
+                      className={`p-4 rounded-lg border ${
+                        isLatest
+                          ? 'border-green-500 bg-green-500/5'
+                          : isSelected
+                          ? 'border-blue-500 bg-blue-500/5'
+                          : 'border-border bg-muted/20'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="font-medium text-foreground">
+                              Version {version.versionNumber}
+                            </span>
+                            {isLatest && (
+                              <Badge className="bg-green-600 text-white">Current</Badge>
+                            )}
+                          </div>
+                          <div className="text-sm text-muted-foreground space-y-1">
+                            <div>
+                              Approved: {new Date(version.approvedAt).toLocaleString()}
+                            </div>
+                            <div className="flex gap-4">
+                              {version.translationProvider && (
+                                <span>Provider: {version.translationProvider}</span>
+                              )}
+                              {version.ocrQuality && (
+                                <span>OCR: {version.ocrQuality}</span>
+                              )}
+                              {version.documentDomain && (
+                                <span>Domain: {version.documentDomain}</span>
+                              )}
+                            </div>
+                            {version.openRouterModel && (
+                              <div className="text-xs">Model: {version.openRouterModel}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedVersionId(null);
+                              } else {
+                                setSelectedVersionId(version._id);
+                              }
+                            }}
+                          >
+                            {isSelected ? 'Hide' : 'View'}
+                          </Button>
+                          {!isLatest && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleRestoreVersion(version._id)}
+                              className="bg-blue-600 hover:bg-blue-700"
+                            >
+                              Restore
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Show version segments when selected */}
+                      {isSelected && selectedVersion && (
+                        <div className="mt-4 pt-4 border-t border-border">
+                          <h4 className="text-sm font-medium mb-3">Translation Preview</h4>
+                          <div className="space-y-3 max-h-96 overflow-y-auto">
+                            {selectedVersion.segments.slice(0, 5).map((seg: any) => (
+                              <div
+                                key={seg.id}
+                                className="p-3 bg-background/50 rounded border border-border"
+                              >
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 text-sm">
+                                  <div>
+                                    <div className="text-xs text-muted-foreground mb-1">
+                                      Original:
+                                    </div>
+                                    <div className="text-foreground">
+                                      {seg.originalText.substring(0, 150)}
+                                      {seg.originalText.length > 150 && '...'}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-xs text-muted-foreground mb-1">
+                                      Translation:
+                                    </div>
+                                    <div className="text-foreground">
+                                      {seg.translatedText.substring(0, 150)}
+                                      {seg.translatedText.length > 150 && '...'}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            {selectedVersion.segments.length > 5 && (
+                              <div className="text-sm text-muted-foreground text-center py-2">
+                                Showing 5 of {selectedVersion.segments.length} segments
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          )}
         </Card>
       )}
     </div>
