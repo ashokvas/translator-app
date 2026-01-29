@@ -105,16 +105,14 @@ function parseMarkdownTable(lines: string[]): { headers: string[]; rows: string[
 }
 
 /**
- * Create a Word table with borders from parsed markdown table
+ * Create a Word table from parsed markdown table
  */
 type ParsedTable = { headers: string[]; rows: string[][] };
 
-function createWordTable(tableData: ParsedTable): Table {
-  const borderStyle = {
-    style: BorderStyle.SINGLE,
-    size: 1,
-    color: '000000',
-  };
+function createWordTable(tableData: ParsedTable, includeBorders: boolean = true): Table {
+  const borderStyle = includeBorders
+    ? { style: BorderStyle.SINGLE, size: 1, color: '000000' }
+    : { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   
   const cellBorders = {
     top: borderStyle,
@@ -125,7 +123,7 @@ function createWordTable(tableData: ParsedTable): Table {
   
   const tableRows: TableRow[] = [];
   
-  // Header row (bold)
+  // Header row (bold, left-aligned to match data)
   tableRows.push(
     new TableRow({
       children: tableData.headers.map(header => 
@@ -134,7 +132,7 @@ function createWordTable(tableData: ParsedTable): Table {
           children: [
             new Paragraph({
               children: [new TextRun({ text: header, bold: true })],
-              alignment: AlignmentType.CENTER,
+              alignment: AlignmentType.LEFT,
             }),
           ],
         })
@@ -142,7 +140,7 @@ function createWordTable(tableData: ParsedTable): Table {
     })
   );
   
-  // Data rows
+  // Data rows (left-aligned)
   for (const row of tableData.rows) {
     tableRows.push(
       new TableRow({
@@ -152,6 +150,7 @@ function createWordTable(tableData: ParsedTable): Table {
             children: [
               new Paragraph({
                 children: [new TextRun({ text: cell })],
+                alignment: AlignmentType.LEFT,
               }),
             ],
           })
@@ -196,7 +195,8 @@ function splitWideTable(tableData: ParsedTable, maxColumns = 9): ParsedTable[] {
 function processTranslatedText(
   text: string,
   blocks: Array<Paragraph | Table>,
-  normalizeLineForDocx: (line: string) => string
+  normalizeLineForDocx: (line: string) => string,
+  includeBorders: boolean = true
 ) {
   const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
   let i = 0;
@@ -220,7 +220,7 @@ function processTranslatedText(
         // Split ultra-wide tables into page-sized chunks.
         const tableParts = splitWideTable(tableData);
         tableParts.forEach((part, index) => {
-          blocks.push(createWordTable(part));
+          blocks.push(createWordTable(part, includeBorders));
           blocks.push(new Paragraph({ text: '', spacing: { after: 200 } }));
           if (index < tableParts.length - 1) {
             blocks.push(new Paragraph({ children: [new PageBreak()] }));
@@ -280,7 +280,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { translationId, orderId, fileName, format: requestedFormat } = body;
+    const { translationId, orderId, fileName, format: requestedFormat, includeTableBorders = true } = body;
     const format: ExportFormat = requestedFormat === 'pdf' ? 'pdf' : 'docx';
 
     if (!translationId || !orderId || !fileName) {
@@ -347,18 +347,6 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    blocks.push(
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: `Source Language: ${translation.sourceLanguage} → Target Language: ${translation.targetLanguage}`,
-            italics: true,
-          }),
-        ],
-        spacing: { after: 400 },
-      })
-    );
-
     // Add horizontal line
     blocks.push(
       new Paragraph({
@@ -385,7 +373,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Process translated text - converts markdown tables to Word tables
-      processTranslatedText(segment.translatedText || '', blocks, normalizeLineForDocx);
+      processTranslatedText(segment.translatedText || '', blocks, normalizeLineForDocx, includeTableBorders);
     }
 
     // Create document

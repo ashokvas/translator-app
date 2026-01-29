@@ -101,12 +101,10 @@ function parseMarkdownTable(lines: string[]): { headers: string[]; rows: string[
 /**
  * Create a Word table with borders
  */
-function createWordTable(tableData: { headers: string[]; rows: string[][] }): Table {
-  const borderStyle = {
-    style: BorderStyle.SINGLE,
-    size: 1,
-    color: '000000',
-  };
+function createWordTable(tableData: { headers: string[]; rows: string[][] }, includeBorders: boolean = true): Table {
+  const borderStyle = includeBorders
+    ? { style: BorderStyle.SINGLE, size: 1, color: '000000' }
+    : { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   
   const cellBorders = {
     top: borderStyle,
@@ -117,7 +115,7 @@ function createWordTable(tableData: { headers: string[]; rows: string[][] }): Ta
   
   const tableRows: TableRow[] = [];
   
-  // Header row
+  // Header row (bold, left-aligned to match data)
   tableRows.push(
     new TableRow({
       children: tableData.headers.map(header => 
@@ -126,7 +124,7 @@ function createWordTable(tableData: { headers: string[]; rows: string[][] }): Ta
           children: [
             new Paragraph({
               children: [new TextRun({ text: header, bold: true })],
-              alignment: AlignmentType.CENTER,
+              alignment: AlignmentType.LEFT,
             }),
           ],
         })
@@ -134,7 +132,7 @@ function createWordTable(tableData: { headers: string[]; rows: string[][] }): Ta
     })
   );
   
-  // Data rows
+  // Data rows (left-aligned)
   for (const row of tableData.rows) {
     tableRows.push(
       new TableRow({
@@ -144,6 +142,7 @@ function createWordTable(tableData: { headers: string[]; rows: string[][] }): Ta
             children: [
               new Paragraph({
                 children: [new TextRun({ text: cell })],
+                alignment: AlignmentType.LEFT,
               }),
             ],
           })
@@ -164,7 +163,8 @@ function createWordTable(tableData: { headers: string[]; rows: string[][] }): Ta
 function processTranslatedText(
   text: string,
   blocks: Array<Paragraph | Table>,
-  normalizeLineForDocx: (line: string) => string
+  normalizeLineForDocx: (line: string) => string,
+  includeBorders: boolean = true
 ) {
   const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
   let i = 0;
@@ -182,7 +182,7 @@ function processTranslatedText(
       
       const tableData = parseMarkdownTable(tableLines);
       if (tableData && tableData.rows.length > 0) {
-        blocks.push(createWordTable(tableData));
+        blocks.push(createWordTable(tableData, includeBorders));
         blocks.push(new Paragraph({ text: '', spacing: { after: 200 } }));
         i = j;
         continue;
@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { orderId, fileNames, format: requestedFormat } = body;
+    const { orderId, fileNames, format: requestedFormat, includeTableBorders = true } = body;
     const format: ExportFormat = requestedFormat === 'pdf' ? 'pdf' : 'docx';
 
     if (!orderId || !fileNames || !Array.isArray(fileNames) || fileNames.length === 0) {
@@ -386,18 +386,6 @@ export async function POST(request: NextRequest) {
         new Paragraph({
           text: `Document ${docIndex + 1}: ${translation.fileName}`,
           heading: HeadingLevel.HEADING_1,
-          spacing: { after: 200 },
-        })
-      );
-
-      blocks.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `${translation.sourceLanguage} → ${translation.targetLanguage}`,
-              italics: true,
-            }),
-          ],
           spacing: { after: 300 },
         })
       );
@@ -420,7 +408,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Process translated text - converts markdown tables to Word tables
-        processTranslatedText(segment.translatedText || '', blocks, normalizeLineForDocx);
+        processTranslatedText(segment.translatedText || '', blocks, normalizeLineForDocx, includeTableBorders);
       }
 
       // Document separator

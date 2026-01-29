@@ -504,7 +504,7 @@ async function translateImage(
       {
         id: `img-docai-${Date.now()}`,
         originalText,
-        translatedText: normalizeJalaliDates(translatedText),
+        translatedText: normalizeJalaliDates(translatedText, sourceLanguage),
         isEdited: false,
         order: 0,
       },
@@ -1115,7 +1115,15 @@ function jalaliToGregorian(jy: number, jm: number, jd: number) {
   return { year: gy, month: gm, day: gd };
 }
 
-function normalizeJalaliDates(text: string) {
+// Languages that use the Jalali (Solar Hijri) calendar
+const JALALI_LANGUAGES = ['fa', 'ps', 'ku'];
+
+function normalizeJalaliDates(text: string, sourceLanguage?: string) {
+  // Only apply Jalali conversion for Persian, Pashto, and Kurdish
+  if (sourceLanguage && !JALALI_LANGUAGES.includes(sourceLanguage)) {
+    return text;
+  }
+
   // Convert Jalali year ranges like "1385-1386" to Gregorian "2006-2007"
   let normalized = text.replace(
     /\b(13|14)\d{2}[–-](13|14)\d{2}\b/g,
@@ -1319,7 +1327,7 @@ async function translatePDF(
             {
               id: `pdf-docai-${Date.now()}`,
               originalText,
-              translatedText: normalizeJalaliDates(translatedText),
+              translatedText: normalizeJalaliDates(translatedText, sourceLanguage),
               isEdited: false,
               pageNumber: 1,
               order: 0,
@@ -1826,13 +1834,92 @@ function mergeVisionPairs(full: { originalText: string; translatedText: string }
   const rightOriginal = String(right.originalText || '').trim();
   const rightTranslated = String(right.translatedText || '').trim();
 
-  // If the slice output looks identical, don't duplicate it.
-  const rightSeemsDuplicate =
-    !!rightOriginal &&
-    (fullOriginal.includes(rightOriginal.slice(0, Math.min(200, rightOriginal.length))) ||
-      fullTranslated.includes(rightTranslated.slice(0, Math.min(200, rightTranslated.length))));
+  // If slice is empty, return full
+  if (!rightOriginal && !rightTranslated) {
+    return { originalText: fullOriginal, translatedText: fullTranslated };
+  }
 
-  if (!rightOriginal || rightSeemsDuplicate) {
+  // Check for duplicate/overlapping content using multiple strategies
+  const isDuplicateOrPartial = (sliceText: string, fullText: string): boolean => {
+    if (!sliceText || !fullText) return false;
+    
+    const sliceLower = sliceText.toLowerCase();
+    const fullLower = fullText.toLowerCase();
+    
+    // Strategy 1: Extract significant words (3+ chars, not common words)
+    const extractWords = (text: string): Set<string> => {
+      const commonWords = new Set(['the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'has', 'his', 'how', 'its', 'may', 'new', 'now', 'old', 'see', 'way', 'who', 'did', 'get', 'let', 'put', 'say', 'she', 'too', 'use', 'name', 'date', 'year', 'place', 'number']);
+      return new Set(
+        text.match(/[a-zA-Z\u00C0-\u024F\u1E00-\u1EFF]{4,}/g)
+          ?.map(w => w.toLowerCase())
+          .filter(w => !commonWords.has(w)) || []
+      );
+    };
+    
+    const sliceWords = extractWords(sliceLower);
+    const fullWords = extractWords(fullLower);
+    
+    if (sliceWords.size === 0) return true;
+    
+    // Count how many slice words appear in full text
+    let wordMatchCount = 0;
+    for (const word of sliceWords) {
+      if (fullWords.has(word) || fullLower.includes(word)) {
+        wordMatchCount++;
+      }
+    }
+    
+    // If >40% of significant words match, likely duplicate
+    if (wordMatchCount / sliceWords.size > 0.4) {
+      return true;
+    }
+    
+    // Strategy 2: Check for key identifying strings (names, numbers, dates)
+    // Extract potential identifiers (capitalized names, numbers, dates)
+    const extractIdentifiers = (text: string): string[] => {
+      const identifiers: string[] = [];
+      // Names (capitalized words)
+      const names = text.match(/[A-Z\u00C0-\u024F\u1E00-\u1EFF][a-z\u00C0-\u024F\u1E00-\u1EFF]+(?:\s+[A-Z\u00C0-\u024F\u1E00-\u1EFF][a-z\u00C0-\u024F\u1E00-\u1EFF]+)*/g) || [];
+      identifiers.push(...names.filter(n => n.length > 5));
+      // Dates (various formats)
+      const dates = text.match(/\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/g) || [];
+      identifiers.push(...dates);
+      // ID numbers (long digit sequences)
+      const ids = text.match(/\d{6,}/g) || [];
+      identifiers.push(...ids);
+      return identifiers;
+    };
+    
+    const sliceIds = extractIdentifiers(sliceText);
+    if (sliceIds.length > 0) {
+      let idMatchCount = 0;
+      for (const id of sliceIds) {
+        if (fullText.includes(id)) {
+          idMatchCount++;
+        }
+      }
+      // If most identifiers match, it's duplicate content
+      if (idMatchCount / sliceIds.length > 0.5) {
+        return true;
+      }
+    }
+    
+    // Strategy 3: Check if slice contains [UNREADABLE] markers - likely partial/truncated
+    const unreadableCount = (sliceText.match(/\[UNREADABLE\]/gi) || []).length;
+    if (unreadableCount >= 3) {
+      // Slice has many unreadable parts, probably just a partial view of same content
+      return true;
+    }
+    
+    return false;
+  };
+
+  const originalIsDuplicate = isDuplicateOrPartial(rightOriginal, fullOriginal);
+  const translatedIsDuplicate = isDuplicateOrPartial(rightTranslated, fullTranslated);
+
+  // If either original or translated looks like duplicate/partial, skip appending
+  // (changed from AND to OR for more aggressive deduplication)
+  if (originalIsDuplicate || translatedIsDuplicate) {
     return { originalText: fullOriginal, translatedText: fullTranslated };
   }
 
@@ -1854,33 +1941,10 @@ async function translateImageViaVisionModelMultiPass(args: {
   sliceCount: number;
   trackUsage?: (event: TranslationUsageEvent) => void;
 }): Promise<{ originalText: string; translatedText: string }> {
-  const full = await translateImageViaVisionModel({ ...args, visionFocus: 'full' });
-
-  // Dense certificates often have 2-4 columns; a single full-page read can miss columns.
-  // Run additional passes over vertical slices (e.g. thirds) and merge results.
-  const slices = Math.max(1, Math.floor(args.sliceCount));
-  let merged = full;
-
-  for (let i = 0; i < slices; i++) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const slicePng = await cropVerticalSliceToPng(args.image, i, slices);
-      // eslint-disable-next-line no-await-in-loop
-      const slice = await translateImageViaVisionModel({
-        ...args,
-        image: slicePng,
-        mediaType: 'image/png',
-        visionFocus: 'slice',
-        sliceIndex: i,
-        sliceCount: slices,
-      });
-      merged = mergeVisionPairs(merged, slice);
-    } catch (err) {
-      console.warn(`[translateImageViaVisionModelMultiPass] slice ${i + 1}/${slices} failed:`, err);
-    }
-  }
-
-  return merged;
+  // Use full-page pass only - no vertical slicing
+  // Slicing was causing duplicate/fragmented text for single-column documents
+  // The full-page pass handles tables with multiple columns within the document
+  return await translateImageViaVisionModel({ ...args, visionFocus: 'full' });
 }
 
 /**
@@ -2349,19 +2413,15 @@ async function translateTextOpenAI(
     prompt: [
       `Translate from ${source} to ${target}. Follow ALL rules below.`,
       '',
-      '## IMPORTANT: PRESERVE ORIGINAL FORMAT',
+      '## TABLE RULES:',
+      '1. Data in COLUMNS (side-by-side) = use markdown table with | characters',
+      '2. Single "Label: Value" on own line = keep as plain text',
+      '3. DO NOT invent headers like "Item", "Value" not in original',
       '',
-      '1. ONLY create tables if the original has a table structure.',
-      '2. DO NOT convert form fields or "Label: Value" text into tables.',
-      '3. DO NOT add table headers that are not in the original.',
-      '',
-      '## FOR FORM FIELDS:',
-      'Keep as plain text: GENERAL AVERAGE: 6.89    FOLIO No.: 164',
-      '',
-      '## FOR ACTUAL TABLES (only if table exists in original):',
-      '- Same column count',
-      '- Same row count',
-      '- Align | characters vertically',
+      '## TABLE FORMAT:',
+      '| Header1 | Header2 | Header3 |',
+      '|---------|---------|---------|',
+      '| Data1   | Data2   | Data3   |',
       '',
       terminologyGuidance,
       '',
@@ -2417,19 +2477,15 @@ async function translateTextAnthropic(
   const prompt = [
     `Translate from ${source} to ${target}. Follow ALL rules below.`,
     '',
-    '## IMPORTANT: PRESERVE ORIGINAL FORMAT',
+    '## TABLE RULES:',
+    '1. Data in COLUMNS (side-by-side) = use markdown table with | characters',
+    '2. Single "Label: Value" on own line = keep as plain text',
+    '3. DO NOT invent headers like "Item", "Value" not in original',
     '',
-    '1. ONLY create tables if the original has a table structure.',
-    '2. DO NOT convert form fields or "Label: Value" text into tables.',
-    '3. DO NOT add table headers that are not in the original.',
-    '',
-    '## FOR FORM FIELDS:',
-    'Keep as plain text: GENERAL AVERAGE: 6.89    FOLIO No.: 164',
-    '',
-    '## FOR ACTUAL TABLES (only if table exists in original):',
-    '- Same column count',
-    '- Same row count',
-    '- Align | characters vertically',
+    '## TABLE FORMAT:',
+    '| Header1 | Header2 | Header3 |',
+    '|---------|---------|---------|',
+    '| Data1   | Data2   | Data3   |',
     '',
     terminologyGuidance,
     '',
@@ -2549,19 +2605,19 @@ async function translateTextOpenRouter(
     prompt: [
       `Translate from ${source} to ${target}. Professional document translation.`,
       '',
-      '## IMPORTANT RULES:',
+      '## TABLE FORMATTING RULES:',
       '',
-      '1. ONLY create tables if the original text contains a table structure (with | characters or clear grid layout).',
-      '2. DO NOT convert form fields, labels, or "Label: Value" pairs into tables.',
-      '3. DO NOT add table headers like "Item", "Value", "Field", etc. that are not in the original.',
-      '4. Preserve the original document format exactly.',
+      '1. When data is arranged in COLUMNS (side-by-side values), use markdown table:',
+      '   | Sex    | Ethnicity | Nationality |',
+      '   |--------|-----------|-------------|',
+      '   | Female | Kinh      | Viet Nam    |',
       '',
-      '## FOR FORM FIELDS (Label ..... Value format):',
-      'Keep as plain text:',
-      'GENERAL AVERAGE: 6.89    FOLIO No.: 164    MASTER REGISTER BOOK No.: "II"',
+      '2. DO NOT invent headers like "Item", "Value" that are not in the original.',
       '',
-      '## FOR ACTUAL TABLES (with | or grid structure in original):',
-      'Preserve the table with proper alignment:',
+      '3. Single "Label: Value" pairs stay as plain text:',
+      '   Full name: NGUYEN VAN A',
+      '',
+      '## FOR ACTUAL TABLES:',
       '| Course Name          | Credits | Grade |',
       '|----------------------|---------|-------|',
       '| English              | 4       | 72    |',

@@ -55,6 +55,8 @@ export function TranslationReview({
   const [openRouterModel, setOpenRouterModel] = useState<string>('openai/gpt-5.2');
   const [ocrQuality, setOcrQuality] = useState<'high' | 'low'>('high');
   const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [isRetranslating, setIsRetranslating] = useState(false);
   const [notice, setNotice] = useState<{ title: string; message: string } | null>(null);
 
   const translation = useQuery(
@@ -138,8 +140,9 @@ export function TranslationReview({
   }, [user?.id, translation]);
 
   const handleConfirmApprove = useCallback(async () => {
-    if (!user?.id || !translation) return;
+    if (!user?.id || !translation || isApproving) return;
 
+    setIsApproving(true);
     try {
       // Step 1: Approve the translation
       await approveTranslation({
@@ -189,13 +192,15 @@ export function TranslationReview({
         message: error instanceof Error ? error.message : String(error),
       });
     } finally {
+      setIsApproving(false);
       setIsApproveDialogOpen(false);
     }
-  }, [user?.id, translation, approveTranslation, onApprove, orderId, fileName]);
+  }, [user?.id, translation, approveTranslation, onApprove, orderId, fileName, isApproving]);
 
   const handleRetranslate = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || isRetranslating) return;
 
+    setIsRetranslating(true);
     // Call translation API again - we'll get file details from props or parent component
     try {
       // Call translate API - it will fetch fileUrl/fileType from Convex if not provided
@@ -254,6 +259,8 @@ export function TranslationReview({
         title: 'Retranslation failed',
         message: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      setIsRetranslating(false);
     }
   }, [
     user?.id,
@@ -266,6 +273,10 @@ export function TranslationReview({
     documentDomain,
     openRouterModel,
     ocrQuality,
+    isRetranslating,
+    getToken,
+    fileUrl,
+    fileType,
   ]);
 
   if (!translation) {
@@ -568,15 +579,19 @@ export function TranslationReview({
                 )}
               </div>
               <div className="flex gap-3">
-                <Button variant="outline" onClick={handleRetranslate}>
-                  Retranslate All
+                <Button 
+                  variant="outline" 
+                  onClick={handleRetranslate}
+                  disabled={isRetranslating || isApproving}
+                >
+                  {isRetranslating ? 'Retranslating...' : 'Retranslate All'}
                 </Button>
                 <Button
                   className="bg-green-600 hover:bg-green-700"
                   onClick={handleApprove}
-                  disabled={!isReviewing}
+                  disabled={!isReviewing || isApproving || isRetranslating}
                 >
-                  Approve Translation
+                  {isApproving ? 'Approving...' : 'Approve Translation'}
                 </Button>
               </div>
             </div>

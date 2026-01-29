@@ -63,6 +63,8 @@ export function OrderManagement() {
   const [selectedForCombine, setSelectedForCombine] = useState<Set<string>>(new Set());
   // Export format selection
   const [exportFormat, setExportFormat] = useState<'docx' | 'pdf'>('docx');
+  // Table borders option (only for certificate domain, default unchecked)
+  const [includeTableBorders, setIncludeTableBorders] = useState(false);
   const [isGeneratingCombined, setIsGeneratingCombined] = useState(false);
   const [isGeneratingIndividual, setIsGeneratingIndividual] = useState<Set<string>>(new Set());
 
@@ -344,6 +346,7 @@ export function OrderManagement() {
           orderId: selectedOrder,
           fileName,
           format: exportFormat,
+          includeTableBorders,
         }),
       });
 
@@ -395,6 +398,7 @@ export function OrderManagement() {
           orderId: selectedOrder,
           fileNames: Array.from(selectedForCombine),
           format: exportFormat,
+          includeTableBorders,
         }),
       });
 
@@ -1153,6 +1157,18 @@ export function OrderManagement() {
                     <span className="text-sm text-foreground">PDF (.pdf)</span>
                   </label>
                 </div>
+                {/* Table borders option - only show for certificate domain */}
+                {documentDomain === 'certificate' && (
+                  <label className="flex items-center gap-2 cursor-pointer mt-3">
+                    <input
+                      type="checkbox"
+                      checked={includeTableBorders}
+                      onChange={(e) => setIncludeTableBorders(e.target.checked)}
+                      className="h-4 w-4 text-primary focus:ring-primary rounded"
+                    />
+                    <span className="text-sm text-foreground">Include table borders</span>
+                  </label>
+                )}
               </div>
 
               {/* Approved Files List with Checkboxes */}
