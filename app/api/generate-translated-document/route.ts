@@ -14,6 +14,7 @@ import {
   WidthType,
   BorderStyle,
   AlignmentType,
+  PageBreak,
 } from 'docx';
 import FormData from 'form-data';
 import { Readable } from 'stream';
@@ -106,7 +107,9 @@ function parseMarkdownTable(lines: string[]): { headers: string[]; rows: string[
 /**
  * Create a Word table with borders from parsed markdown table
  */
-function createWordTable(tableData: { headers: string[]; rows: string[][] }): Table {
+type ParsedTable = { headers: string[]; rows: string[][] };
+
+function createWordTable(tableData: ParsedTable): Table {
   const borderStyle = {
     style: BorderStyle.SINGLE,
     size: 1,
@@ -163,6 +166,30 @@ function createWordTable(tableData: { headers: string[]; rows: string[][] }): Ta
   });
 }
 
+function getTableChunkSize(totalColumns: number, maxColumns: number) {
+  if (totalColumns > 5 && totalColumns % 5 === 0) return 5;
+  if (totalColumns > 4 && totalColumns % 4 === 0) return 4;
+  if (totalColumns > 3 && totalColumns % 3 === 0) return 3;
+  return Math.min(maxColumns, totalColumns);
+}
+
+function splitWideTable(tableData: ParsedTable, maxColumns = 9): ParsedTable[] {
+  const totalColumns = tableData.headers.length;
+  if (totalColumns <= maxColumns) return [tableData];
+
+  const chunkSize = getTableChunkSize(totalColumns, maxColumns);
+  const chunks: ParsedTable[] = [];
+  for (let start = 0; start < totalColumns; start += chunkSize) {
+    const end = Math.min(start + chunkSize, totalColumns);
+    chunks.push({
+      headers: tableData.headers.slice(start, end),
+      rows: tableData.rows.map((row) => row.slice(start, end)),
+    });
+  }
+
+  return chunks;
+}
+
 /**
  * Process translated text and convert markdown tables to Word tables
  */
@@ -190,9 +217,15 @@ function processTranslatedText(
       // Try to parse as markdown table
       const tableData = parseMarkdownTable(tableLines);
       if (tableData && tableData.rows.length > 0) {
-        // Successfully parsed - create Word table
-        blocks.push(createWordTable(tableData));
-        blocks.push(new Paragraph({ text: '', spacing: { after: 200 } })); // Add spacing after table
+        // Split ultra-wide tables into page-sized chunks.
+        const tableParts = splitWideTable(tableData);
+        tableParts.forEach((part, index) => {
+          blocks.push(createWordTable(part));
+          blocks.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+          if (index < tableParts.length - 1) {
+            blocks.push(new Paragraph({ children: [new PageBreak()] }));
+          }
+        });
         i = j; // Skip past table lines
         continue;
       }

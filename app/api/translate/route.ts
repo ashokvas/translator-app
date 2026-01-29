@@ -23,7 +23,7 @@ import {
 } from '@/lib/translation-providers';
 import { getLanguageName } from '@/lib/languages';
 import { translateTextV3, performOCR, getGlossaryNameForDomain, detectLanguageV3, type GlossaryConfig } from '@/lib/google-cloud';
-import { performDocumentAiOcr } from '@/lib/document-ai';
+import { performDocumentAiOcr, type DocumentAiTable } from '@/lib/document-ai';
 import {
   DEFAULT_PREPROCESSING_OPTIONS,
   AGGRESSIVE_PREPROCESSING_OPTIONS,
@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
           authorizedParties: [
             'https://translatoraxis.com',
             'https://www.translatoraxis.com',
+            'http://localhost:3000',
             process.env.NEXT_PUBLIC_SITE_URL || '',
           ].filter(Boolean),
         });
@@ -479,14 +480,11 @@ async function translateImage(
   const imageBuf = Buffer.from(imageBuffer);
 
   // If Document AI OCR is selected, skip OpenRouter vision and use Document AI text extraction.
+  // Document AI handles image quality well on its own, so we skip heavy preprocessing
+  // to avoid "Invalid image content" errors from format/size issues.
   if (options.ocrProvider === 'document_ai') {
     const mimeType = headerMediaType.startsWith('image/') ? headerMediaType : 'image/jpeg';
-    const processedBuffer =
-      options.ocrQuality === 'enhanced'
-        ? await preprocessImageForOCR(imageBuf, AGGRESSIVE_PREPROCESSING_OPTIONS)
-        : imageBuf;
-
-    const docAiResult = await performDocumentAiOcr(processedBuffer, mimeType);
+    const docAiResult = await performDocumentAiOcr(imageBuf, mimeType);
     if (!docAiResult.text.trim()) return [];
 
     options.trackUsage?.({
@@ -495,12 +493,18 @@ async function translateImage(
       requests: docAiResult.pageCount,
     });
 
-    const translatedText = await translateText(docAiResult.text, sourceLanguage, targetLanguage, options);
+    const { originalText, translatedText } = await translateDocumentAiContent(
+      docAiResult.text,
+      docAiResult.tables || [],
+      sourceLanguage,
+      targetLanguage,
+      options
+    );
     return [
       {
         id: `img-docai-${Date.now()}`,
-        originalText: docAiResult.text,
-        translatedText,
+        originalText,
+        translatedText: normalizeJalaliDates(translatedText),
         isEdited: false,
         order: 0,
       },
@@ -643,6 +647,536 @@ function mergeOcrText(primary: string, secondary: string): string {
   return merged.join('\n');
 }
 
+function normalizeCellText(text: string) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function isNumericCell(text: string) {
+  return /^\s*[\d.,\s]+$/.test(normalizeNumerals(text || ''));
+}
+
+async function translateDocAiTable(
+  table: DocumentAiTable,
+  sourceLanguage: string,
+  targetLanguage: string,
+  options: TranslationOptions
+) {
+  // Collect all text cells that need translation (skip numeric cells)
+  const cellsToTranslate: Array<{ type: 'header' | 'cell'; index: number; rowIndex?: number; text: string }> = [];
+
+  table.headers.forEach((header, index) => {
+    if (header && header.trim() && !isNumericCell(header)) {
+      cellsToTranslate.push({ type: 'header', index, text: header.trim() });
+    }
+  });
+
+  table.rows.forEach((row, rowIndex) => {
+    row.forEach((cell, index) => {
+      if (cell && cell.trim() && !isNumericCell(cell)) {
+        cellsToTranslate.push({ type: 'cell', index, rowIndex, text: cell.trim() });
+      }
+    });
+  });
+
+  if (cellsToTranslate.length === 0) {
+    return { ...table, rawText: undefined };
+  }
+
+  // Batch translate all cells in one API call using a delimiter
+  const delimiter = '\n|||CELL|||\n';
+  const batchText = cellsToTranslate.map((c) => c.text).join(delimiter);
+  
+  let translatedBatch: string;
+  try {
+    translatedBatch = await translateText(batchText, sourceLanguage, targetLanguage, options);
+  } catch (err) {
+    console.warn('[translateDocAiTable] Batch translation failed, returning original table:', err);
+    return { ...table, rawText: undefined };
+  }
+
+  // Split translated text back into cells
+  const translatedCells = translatedBatch.split(/\|\|\|CELL\|\|\|/i).map((t) => t.trim());
+
+  // Map translations back to headers and rows
+  const headers = [...table.headers];
+  const rows = table.rows.map((row) => [...row]);
+
+  cellsToTranslate.forEach((cellInfo, idx) => {
+    const translated = translatedCells[idx] || cellInfo.text;
+    if (cellInfo.type === 'header') {
+      headers[cellInfo.index] = translated;
+    } else if (typeof cellInfo.rowIndex === 'number') {
+      rows[cellInfo.rowIndex][cellInfo.index] = translated;
+    }
+  });
+
+  return {
+    ...table,
+    headers,
+    rows,
+    rawText: undefined,
+  };
+}
+
+async function translateDocumentAiContent(
+  text: string,
+  tables: DocumentAiTable[],
+  sourceLanguage: string,
+  targetLanguage: string,
+  options: TranslationOptions
+) {
+  console.log('[translateDocumentAiContent] Tables count:', tables.length);
+  console.log('[translateDocumentAiContent] Text length:', text.length);
+  if (tables.length > 0) {
+    console.log('[translateDocumentAiContent] First table headers:', JSON.stringify(tables[0].headers));
+    console.log('[translateDocumentAiContent] First table rows count:', tables[0].rows.length);
+    console.log('[translateDocumentAiContent] First table first row:', JSON.stringify(tables[0].rows[0]));
+    console.log('[translateDocumentAiContent] First table rawText (first 300 chars):', tables[0].rawText?.slice(0, 300));
+  }
+
+  if (!tables.length) {
+    console.log('[translateDocumentAiContent] No tables found, translating plain text');
+    const translatedText = await translateText(text, sourceLanguage, targetLanguage, options);
+    return { originalText: text, translatedText };
+  }
+
+  const tablesWithRange = tables.filter(
+    (table) => typeof table.startIndex === 'number' && typeof table.endIndex === 'number'
+  );
+  if (tablesWithRange.length === 0) {
+    const originalText = renderDocumentAiTextWithTables(text, tables);
+    const translatedText = await translateText(originalText, sourceLanguage, targetLanguage, options);
+    return { originalText, translatedText };
+  }
+
+  const sortedTables = [...tablesWithRange].sort(
+    (a, b) => (a.startIndex || 0) - (b.startIndex || 0)
+  );
+
+  const pieces: string[] = [];
+  let cursor = 0;
+  for (const table of sortedTables) {
+    const startIndex = Math.max(0, table.startIndex || 0);
+    const endIndex = Math.max(startIndex, table.endIndex || 0);
+    const segment = text.slice(cursor, startIndex);
+    if (segment.trim()) {
+      pieces.push(await translateText(segment, sourceLanguage, targetLanguage, options));
+    } else {
+      pieces.push(segment);
+    }
+
+    const filledTable = fillMissingTableColumns(table);
+    const translatedTable = await translateDocAiTable(
+      filledTable,
+      sourceLanguage,
+      targetLanguage,
+      options
+    );
+    pieces.push(buildMarkdownTable(translatedTable));
+    cursor = endIndex;
+  }
+
+  if (cursor < text.length) {
+    const tail = text.slice(cursor);
+    if (tail.trim()) {
+      pieces.push(await translateText(tail, sourceLanguage, targetLanguage, options));
+    } else {
+      pieces.push(tail);
+    }
+  }
+
+  const originalText = renderDocumentAiTextWithTables(text, tables);
+  return { originalText, translatedText: pieces.join('').trim() };
+}
+
+function normalizeNumerals(value: string) {
+  return value
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/\u066B/g, '.')
+    .replace(/\u066C/g, ',');
+}
+
+function extractNumericTokens(text: string) {
+  const normalized = normalizeNumerals(text || '');
+  const matches = normalized.match(/\d+(?:[.,]\d+)?/g);
+  return matches ? matches.map((token) => token.trim()) : [];
+}
+
+function buildNumericTokenSet(table: DocumentAiTable) {
+  const tokens = new Set<string>();
+  for (const header of table.headers) {
+    extractNumericTokens(header).forEach((token) => tokens.add(token));
+  }
+  for (const row of table.rows) {
+    for (const cell of row) {
+      extractNumericTokens(cell).forEach((token) => tokens.add(token));
+    }
+  }
+  return tokens;
+}
+
+function findRowSegmentsByCode(table: DocumentAiTable) {
+  if (!table.rawText) return [];
+  const normalizedText = normalizeNumerals(table.rawText);
+  const codes = table.rows
+    .map((row) => normalizeNumerals(String(row[0] || '').trim()))
+    .filter((code) => code.length > 0);
+
+  const segments: Array<{ code: string; segment: string }> = [];
+  let cursor = 0;
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i];
+    const index = normalizedText.indexOf(code, cursor);
+    if (index === -1) {
+      segments.push({ code, segment: '' });
+      continue;
+    }
+    const nextCode = codes[i + 1];
+    const nextIndex = nextCode ? normalizedText.indexOf(nextCode, index + code.length) : -1;
+    const end = nextIndex === -1 ? normalizedText.length : nextIndex;
+    segments.push({ code, segment: normalizedText.slice(index, end) });
+    cursor = end;
+  }
+
+  return segments;
+}
+
+function fillMissingColumnsFromRawSegments(
+  table: DocumentAiTable,
+  missingColumns: number[],
+  columnCount: number
+): DocumentAiTable {
+  if (!table.rawText || missingColumns.length === 0) return table;
+
+  const segments = findRowSegmentsByCode(table);
+  if (segments.length === 0) return table;
+
+  const rows = table.rows.map((row, rowIndex) => {
+    const nextRow = [...row];
+    while (nextRow.length < columnCount) nextRow.push('');
+    const { code, segment } = segments[rowIndex] || { code: '', segment: '' };
+    if (!segment) return nextRow;
+
+    const tokens = extractNumericTokens(segment)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0)
+      .filter((token) => token !== code);
+
+    let tokenIndex = 0;
+    for (const columnIndex of missingColumns) {
+      if (nextRow[columnIndex] && nextRow[columnIndex].trim()) continue;
+      nextRow[columnIndex] = tokens[tokenIndex] ?? nextRow[columnIndex] ?? '';
+      tokenIndex += 1;
+    }
+    return nextRow;
+  });
+
+  return {
+    ...table,
+    rows,
+  };
+}
+
+function detectColumnCountFromRawText(rawText: string, existingHeaders: string[]): { columnCount: number; detectedHeaders: string[] } {
+  if (!rawText) return { columnCount: existingHeaders.length, detectedHeaders: existingHeaders };
+
+  const lines = rawText.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return { columnCount: existingHeaders.length, detectedHeaders: existingHeaders };
+
+  // Look for a header-like line at the top (contains multiple short text segments)
+  // Header lines typically have column names separated by whitespace
+  const firstFewLines = lines.slice(0, 3);
+  
+  for (const line of firstFewLines) {
+    // Split by multiple spaces or tabs (common in OCR output for columns)
+    const parts = line.split(/\s{2,}|\t+/).map((p) => p.trim()).filter(Boolean);
+    
+    // If we find a line with more parts than existing headers, it might be the header row
+    if (parts.length > existingHeaders.length && parts.length <= 10) {
+      // Check if parts look like headers (not all numeric)
+      const nonNumericParts = parts.filter((p) => !/^\d+([.,]\d+)?$/.test(normalizeNumerals(p)));
+      if (nonNumericParts.length >= parts.length / 2) {
+        return { columnCount: parts.length, detectedHeaders: parts };
+      }
+    }
+  }
+
+  // Try to detect column count from data rows
+  // Count numeric tokens per row to estimate extra columns
+  const dataLines = lines.slice(existingHeaders.length > 0 ? 1 : 0);
+  const tokenCounts: number[] = [];
+  
+  for (const line of dataLines.slice(0, 10)) {
+    const tokens = extractNumericTokens(line);
+    tokenCounts.push(tokens.length);
+  }
+
+  if (tokenCounts.length > 0) {
+    const avgTokens = Math.round(tokenCounts.reduce((a, b) => a + b, 0) / tokenCounts.length);
+    // If we consistently find more numeric tokens than columns we have, expand
+    if (avgTokens > 0 && existingHeaders.length + avgTokens <= 10) {
+      const expanded = [...existingHeaders];
+      for (let i = 0; i < avgTokens; i++) {
+        expanded.push('');
+      }
+      return { columnCount: expanded.length, detectedHeaders: expanded };
+    }
+  }
+
+  return { columnCount: existingHeaders.length, detectedHeaders: existingHeaders };
+}
+
+function fillMissingTableColumns(table: DocumentAiTable): DocumentAiTable {
+  if (!table.rawText) return table;
+  if (table.rows.length === 0) return table;
+
+  // Log raw table data for debugging
+  console.log('[fillMissingTableColumns] Table headers:', JSON.stringify(table.headers));
+  console.log('[fillMissingTableColumns] Table rows count:', table.rows.length);
+  console.log('[fillMissingTableColumns] First 3 rows:', JSON.stringify(table.rows.slice(0, 3)));
+  console.log('[fillMissingTableColumns] Raw text (first 500 chars):', table.rawText.slice(0, 500));
+
+  // Detect actual column count from raw text
+  const { columnCount, detectedHeaders } = detectColumnCountFromRawText(table.rawText, table.headers);
+  
+  console.log('[fillMissingTableColumns] Detected column count:', columnCount);
+  console.log('[fillMissingTableColumns] Detected headers:', JSON.stringify(detectedHeaders));
+
+  if (columnCount === 0) return table;
+
+  // Ensure headers match detected count
+  const headers = [...detectedHeaders];
+  while (headers.length < columnCount) {
+    headers.push('');
+  }
+
+  // Ensure rows have correct column count
+  const paddedRows = table.rows.map((row) => {
+    const nextRow = [...row];
+    while (nextRow.length < columnCount) nextRow.push('');
+    return nextRow;
+  });
+
+  const tableWithPadding = { ...table, headers, rows: paddedRows };
+
+  const missingColumns = Array.from({ length: columnCount }, (_, index) => index).filter((index) =>
+    tableWithPadding.rows.every((row) => !(row[index] && row[index].trim()))
+  );
+  if (missingColumns.length === 0) return tableWithPadding;
+
+  const byCodeFill = fillMissingColumnsFromRawSegments(tableWithPadding, missingColumns, columnCount);
+  const missingAfterCodeFill = missingColumns.filter((index) =>
+    byCodeFill.rows.every((row) => !(row[index] && row[index].trim()))
+  );
+  if (missingAfterCodeFill.length === 0) return byCodeFill;
+
+  const ignoredTokens = buildNumericTokenSet(tableWithPadding);
+  const rawTokens = extractNumericTokens(tableWithPadding.rawText || '')
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0)
+    .filter((token) => !ignoredTokens.has(token))
+    .filter((token) => !(token.length >= 5 && /^\d+$/.test(token)));
+
+  const requiredTokens = tableWithPadding.rows.length * missingAfterCodeFill.length;
+  if (rawTokens.length < requiredTokens) return byCodeFill;
+
+  let tokenIndex = 0;
+  const rows = byCodeFill.rows.map((row) => {
+    const nextRow = [...row];
+    while (nextRow.length < columnCount) nextRow.push('');
+    for (const columnIndex of missingAfterCodeFill) {
+      nextRow[columnIndex] = rawTokens[tokenIndex] ?? nextRow[columnIndex] ?? '';
+      tokenIndex += 1;
+    }
+    return nextRow;
+  });
+
+  return {
+    ...byCodeFill,
+    rows,
+  };
+}
+
+function buildMarkdownTable(table: DocumentAiTable): string {
+  const filledTable = fillMissingTableColumns(table);
+  const normalizedHeaders = filledTable.headers.map(normalizeCellText);
+  const normalizedRows = filledTable.rows.map((row) => row.map(normalizeCellText));
+  const columnCount = Math.max(
+    normalizedHeaders.length,
+    ...normalizedRows.map((row) => row.length)
+  );
+
+  const headers =
+    normalizedHeaders.length > 0
+      ? normalizedHeaders
+      : Array.from({ length: columnCount }, () => '');
+
+  const headerLine = `| ${headers.map((cell) => cell || ' ').join(' | ')} |`;
+  const separatorLine = `| ${Array.from({ length: columnCount }, () => '---').join(' | ')} |`;
+  const bodyLines = normalizedRows.map((row) => {
+    const padded = [...row];
+    while (padded.length < columnCount) padded.push('');
+    return `| ${padded.map((cell) => cell || ' ').join(' | ')} |`;
+  });
+
+  return [headerLine, separatorLine, ...bodyLines].join('\n');
+}
+
+function renderDocumentAiTextWithTables(text: string, tables: DocumentAiTable[] = []) {
+  if (!tables.length) return text;
+
+  const tablesWithRange = tables.filter(
+    (table) => typeof table.startIndex === 'number' && typeof table.endIndex === 'number'
+  );
+  if (tablesWithRange.length === 0) {
+    const appendedTables = tables.map(buildMarkdownTable).join('\n\n');
+    return `${text}\n\n${appendedTables}`.trim();
+  }
+
+  const sortedTables = [...tablesWithRange].sort(
+    (a, b) => (a.startIndex || 0) - (b.startIndex || 0)
+  );
+
+  let cursor = 0;
+  let output = '';
+  for (const table of sortedTables) {
+    const startIndex = Math.max(0, table.startIndex || 0);
+    const endIndex = Math.max(startIndex, table.endIndex || 0);
+    if (startIndex > cursor) {
+      output += text.slice(cursor, startIndex);
+    }
+    // Replace the table text span with a structured markdown table.
+    output += `\n${buildMarkdownTable(table)}\n`;
+    cursor = endIndex;
+  }
+
+  if (cursor < text.length) {
+    output += text.slice(cursor);
+  }
+
+  return output.trim();
+}
+
+function jalaliToGregorian(jy: number, jm: number, jd: number) {
+  const jMonthDays = [31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29];
+  const gMonthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+  let jyOffset = jy - 979;
+  let jmOffset = jm - 1;
+  let jdOffset = jd - 1;
+
+  let jDayNo =
+    365 * jyOffset +
+    Math.floor(jyOffset / 33) * 8 +
+    Math.floor(((jyOffset % 33) + 3) / 4);
+  for (let i = 0; i < jmOffset; i++) {
+    jDayNo += jMonthDays[i];
+  }
+  jDayNo += jdOffset;
+
+  let gDayNo = jDayNo + 79;
+  let gy = 1600 + 400 * Math.floor(gDayNo / 146097);
+  gDayNo %= 146097;
+
+  let leap = true;
+  if (gDayNo >= 36525) {
+    gDayNo--;
+    gy += 100 * Math.floor(gDayNo / 36524);
+    gDayNo %= 36524;
+    if (gDayNo >= 365) {
+      gDayNo++;
+    } else {
+      leap = false;
+    }
+  }
+
+  gy += 4 * Math.floor(gDayNo / 1461);
+  gDayNo %= 1461;
+
+  if (gDayNo >= 366) {
+    leap = false;
+    gDayNo--;
+    gy += Math.floor(gDayNo / 365);
+    gDayNo %= 365;
+  }
+
+  let gm = 0;
+  for (let i = 0; i < 12; i++) {
+    const monthLength = gMonthDays[i] + (i === 1 && leap ? 1 : 0);
+    if (gDayNo < monthLength) {
+      gm = i + 1;
+      break;
+    }
+    gDayNo -= monthLength;
+  }
+
+  const gd = gDayNo + 1;
+  return { year: gy, month: gm, day: gd };
+}
+
+function normalizeJalaliDates(text: string) {
+  // Convert Jalali year ranges like "1385-1386" to Gregorian "2006-2007"
+  let normalized = text.replace(
+    /\b(13|14)\d{2}[–-](13|14)\d{2}\b/g,
+    (match) => {
+      const [startYear, endYear] = match.split(/[–-]/).map((value) => Number(value.trim()));
+      if (!startYear || !endYear) return match;
+      if (startYear < 1300 || startYear > 1500 || endYear < 1300 || endYear > 1500) return match;
+      const convertedStart = jalaliToGregorian(startYear, 1, 1);
+      const convertedEnd = jalaliToGregorian(endYear, 1, 1);
+      return `${convertedStart.year}-${convertedEnd.year}`;
+    }
+  );
+
+  // Convert full Jalali dates like "1393/02/17" to Gregorian
+  normalized = normalized.replace(
+    /\b(13|14)\d{2}[/-](\d{1,2})[/-](\d{1,2})\b/g,
+    (match) => {
+      const [year, month, day] = match.split(/[/-]/).map((value) => Number(value));
+      if (!year || !month || !day) return match;
+      if (year < 1300 || year > 1500) return match;
+      const converted = jalaliToGregorian(year, month, day);
+      const pad = (value: number) => String(value).padStart(2, '0');
+      return `${converted.year}/${pad(converted.month)}/${pad(converted.day)}`;
+    }
+  );
+
+  // Convert standalone Jalali years in "Date of Birth" context
+  normalized = normalized.replace(
+    /(Date of Birth:\s*)(\d{4})(?:[/-](\d{1,2})[/-](\d{1,2}))?/i,
+    (match, prefix, year, month, day) => {
+      const jy = Number(year);
+      if (!Number.isFinite(jy) || jy < 1300 || jy > 1500) return match;
+      if (!month || !day) {
+        const converted = jalaliToGregorian(jy, 1, 1);
+        return `${prefix}${converted.year}`;
+      }
+      const jm = Number(month);
+      const jd = Number(day);
+      if (!Number.isFinite(jm) || !Number.isFinite(jd)) return match;
+      const converted = jalaliToGregorian(jy, jm, jd);
+      const pad = (value: number) => String(value).padStart(2, '0');
+      return `${prefix}${converted.year}/${pad(converted.month)}/${pad(converted.day)}`;
+    }
+  );
+
+  // Convert semester-style Jalali years like "Semester 1385-1386" or "First Semester 1387-1388"
+  normalized = normalized.replace(
+    /(Semester\s*)(13|14)(\d{2})[–-](13|14)(\d{2})/gi,
+    (match, prefix, startCentury, startYY, endCentury, endYY) => {
+      const startYear = Number(`${startCentury}${startYY}`);
+      const endYear = Number(`${endCentury}${endYY}`);
+      if (startYear < 1300 || startYear > 1500 || endYear < 1300 || endYear > 1500) return match;
+      const convertedStart = jalaliToGregorian(startYear, 1, 1);
+      const convertedEnd = jalaliToGregorian(endYear, 1, 1);
+      return `${prefix}${convertedStart.year}-${convertedEnd.year}`;
+    }
+  );
+
+  return normalized;
+}
+
 /**
  * OCR using Google Cloud Vision API (SDK)
  * Uses the official @google-cloud/vision SDK for better accuracy and features
@@ -773,8 +1307,9 @@ async function translatePDF(
             requests: docAiResult.pageCount,
           });
 
-          const translatedText = await translateText(
+          const { originalText, translatedText } = await translateDocumentAiContent(
             docAiResult.text,
+            docAiResult.tables || [],
             sourceLanguage,
             targetLanguage,
             options
@@ -783,8 +1318,8 @@ async function translatePDF(
           return [
             {
               id: `pdf-docai-${Date.now()}`,
-              originalText: docAiResult.text,
-              translatedText,
+              originalText,
+              translatedText: normalizeJalaliDates(translatedText),
               isEdited: false,
               pageNumber: 1,
               order: 0,
@@ -1814,30 +2349,23 @@ async function translateTextOpenAI(
     prompt: [
       `Translate from ${source} to ${target}. Follow ALL rules below.`,
       '',
-      '## CRITICAL: ALIGNED TABLES',
+      '## IMPORTANT: PRESERVE ORIGINAL FORMAT',
       '',
-      '**ALL | CHARACTERS MUST ALIGN VERTICALLY!**',
+      '1. ONLY create tables if the original has a table structure.',
+      '2. DO NOT convert form fields or "Label: Value" text into tables.',
+      '3. DO NOT add table headers that are not in the original.',
       '',
-      'CORRECT (columns align):',
-      '| Course Name          | Credits | Grade |',
-      '|----------------------|---------|-------|',
-      '| English              | 4       | 72    |',
-      '| Advanced Mathematics | 5       | 67    |',
+      '## FOR FORM FIELDS:',
+      'Keep as plain text: GENERAL AVERAGE: 6.89    FOLIO No.: 164',
       '',
-      'HOW TO ALIGN:',
-      '- Find longest text in each column',
-      '- Pad ALL cells to match that width',
-      '- Separator dashes match column width',
-      '',
-      '## MATCH ORIGINAL:',
+      '## FOR ACTUAL TABLES (only if table exists in original):',
       '- Same column count',
       '- Same row count',
+      '- Align | characters vertically',
       '',
-      '## FOR FORMS:',
-      '- "Label: Value" on separate lines',
       terminologyGuidance,
       '',
-      'Output ONLY the translation.',
+      'Output ONLY the translation. Preserve original formatting.',
       '',
       'TEXT:',
       text,
@@ -1889,30 +2417,23 @@ async function translateTextAnthropic(
   const prompt = [
     `Translate from ${source} to ${target}. Follow ALL rules below.`,
     '',
-    '## CRITICAL: ALIGNED TABLES',
+    '## IMPORTANT: PRESERVE ORIGINAL FORMAT',
     '',
-    '**ALL | CHARACTERS MUST ALIGN VERTICALLY!**',
+    '1. ONLY create tables if the original has a table structure.',
+    '2. DO NOT convert form fields or "Label: Value" text into tables.',
+    '3. DO NOT add table headers that are not in the original.',
     '',
-    'CORRECT (columns align):',
-    '| Course Name          | Credits | Grade |',
-    '|----------------------|---------|-------|',
-    '| English              | 4       | 72    |',
-    '| Advanced Mathematics | 5       | 67    |',
+    '## FOR FORM FIELDS:',
+    'Keep as plain text: GENERAL AVERAGE: 6.89    FOLIO No.: 164',
     '',
-    'HOW TO ALIGN:',
-    '- Find longest text in each column',
-    '- Pad ALL cells to match that width',
-    '- Separator dashes match column width',
-    '',
-    '## MATCH ORIGINAL:',
+    '## FOR ACTUAL TABLES (only if table exists in original):',
     '- Same column count',
     '- Same row count',
+    '- Align | characters vertically',
     '',
-    '## FOR FORMS:',
-    '- "Label: Value" on separate lines',
     terminologyGuidance,
     '',
-    'Output ONLY the translation.',
+    'Output ONLY the translation. Preserve original formatting.',
     '',
     'TEXT:',
     text,
@@ -2003,79 +2524,103 @@ async function translateTextOpenRouter(
 
   // Vision models with detailed prompts can take 2-4 minutes; default to 5 min timeout
   const timeoutMs = Number(process.env.OPENROUTER_TIMEOUT_MS || 300000);
-  const abortController = new AbortController();
-  const abortTimer = setTimeout(() => abortController.abort(), timeoutMs);
+  const maxRetries = 3;
+  let lastError: Error | null = null;
 
-  const result = await generateText({
-    // IMPORTANT: OpenRouter is OpenAI-Chat-Completions compatible, not OpenAI Responses API.
-    model: openrouter.chat(model),
-    maxRetries: 0,
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      // Exponential backoff: 2s, 4s, 8s
+      const delay = Math.pow(2, attempt) * 1000;
+      console.log(`[translateTextOpenRouter] Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms delay`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+
+    const abortController = new AbortController();
+    const abortTimer = setTimeout(() => abortController.abort(), timeoutMs);
+
+    try {
+      const result = await generateText({
+        // IMPORTANT: OpenRouter is OpenAI-Chat-Completions compatible, not OpenAI Responses API.
+        model: openrouter.chat(model),
+        maxRetries: 0,
     temperature: 0,
     system,
     abortSignal: abortController.signal,
     prompt: [
       `Translate from ${source} to ${target}. Professional document translation.`,
       '',
-      '## CRITICAL: PRODUCE PROPERLY ALIGNED TABLES',
+      '## IMPORTANT RULES:',
       '',
-      '**ALL | CHARACTERS MUST ALIGN VERTICALLY!**',
+      '1. ONLY create tables if the original text contains a table structure (with | characters or clear grid layout).',
+      '2. DO NOT convert form fields, labels, or "Label: Value" pairs into tables.',
+      '3. DO NOT add table headers like "Item", "Value", "Field", etc. that are not in the original.',
+      '4. Preserve the original document format exactly.',
       '',
-      'CORRECT FORMAT (notice alignment):',
-      '| Course Name          | Credits | Grade | Type     | Date       |',
-      '|----------------------|---------|-------|----------|------------|',
-      '| English              | 4       | 72    | Required | 2000-01-13 |',
-      '| Advanced Mathematics | 5       | 67    | Required | 2000-01-13 |',
-      '| Physical Education   | 1       | 74    | Required | 2000-01-13 |',
+      '## FOR FORM FIELDS (Label ..... Value format):',
+      'Keep as plain text:',
+      'GENERAL AVERAGE: 6.89    FOLIO No.: 164    MASTER REGISTER BOOK No.: "II"',
       '',
-      'HOW TO ALIGN:',
-      '1. Find LONGEST text in each column',
-      '2. Pad ALL cells in that column to match that width',
-      '3. Use spaces for padding',
-      '4. Separator dashes (---) must match column width',
+      '## FOR ACTUAL TABLES (with | or grid structure in original):',
+      'Preserve the table with proper alignment:',
+      '| Course Name          | Credits | Grade |',
+      '|----------------------|---------|-------|',
+      '| English              | 4       | 72    |',
       '',
-      '## MATCH ORIGINAL:',
-      '- Same number of COLUMNS',
-      '- Same number of ROWS',
-      '- Preserve side-by-side layouts',
+      '## MATCH ORIGINAL EXACTLY:',
+      '- Same structure (table vs plain text)',
+      '- Same number of columns/rows if table exists',
+      '- Do not add formatting that is not in the original',
       '',
-      '## FOR SIDE-BY-SIDE:',
-      '| Left Course          | Cr | Grade | Right Course         | Cr | Grade |',
-      '|----------------------|----|-------|----------------------|----|-------|',
-      '| English              | 4  | 72    | Physics              | 4  | 68    |',
-      '',
-      '## HEADER (before table):',
-      'Student ID: XXXXX',
-      'Name: XXXXX',
-      '',
-      '## FOOTER (after table):',
-      'Total Credits: XXX',
-      '',
-      '## FOR FORMS:',
-      '- "Label: Value" on separate lines',
       terminologyGuidance,
       '',
-      'Output ONLY the translation.',
+      'Output ONLY the translation. Preserve original formatting.',
       '',
       'TEXT:',
       text,
     ].join('\n'),
-  });
+      });
 
-  clearTimeout(abortTimer);
+      clearTimeout(abortTimer);
 
-  const usage = (result as any)?.usage;
-  const outputText = result.text || text;
-  trackUsage?.({
-    provider: 'openrouter',
-    kind: 'text',
-    model,
-    inputChars: text.length,
-    outputChars: outputText.length,
-    promptTokens: usage?.promptTokens,
-    completionTokens: usage?.completionTokens,
-    totalTokens: usage?.totalTokens,
-  });
+      const usage = (result as any)?.usage;
+      const outputText = result.text || text;
+      trackUsage?.({
+        provider: 'openrouter',
+        kind: 'text',
+        model,
+        inputChars: text.length,
+        outputChars: outputText.length,
+        promptTokens: usage?.promptTokens,
+        completionTokens: usage?.completionTokens,
+        totalTokens: usage?.totalTokens,
+      });
 
-  return result.text || text;
+      return result.text || text;
+    } catch (err) {
+      clearTimeout(abortTimer);
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const errorMessage = lastError.message || '';
+      
+      // Check if error is retryable (401, 429, 500, 502, 503, 504)
+      const isRetryable = 
+        errorMessage.includes('401') ||
+        errorMessage.includes('429') ||
+        errorMessage.includes('500') ||
+        errorMessage.includes('502') ||
+        errorMessage.includes('503') ||
+        errorMessage.includes('504') ||
+        errorMessage.includes('User not found') ||
+        errorMessage.includes('rate limit');
+      
+      if (!isRetryable || attempt === maxRetries - 1) {
+        console.error(`[translateTextOpenRouter] Failed after ${attempt + 1} attempts:`, lastError.message);
+        throw lastError;
+      }
+      
+      console.warn(`[translateTextOpenRouter] Attempt ${attempt + 1} failed with retryable error:`, lastError.message);
+    }
+  }
+
+  throw lastError || new Error('Translation failed after retries');
 }
 

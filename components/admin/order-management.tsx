@@ -945,7 +945,7 @@ export function OrderManagement() {
             </div>
           )}
 
-          {orderDetails.status !== 'pending' && (
+          {orderDetails.status !== 'pending' && ocrProvider === 'vision' && (
             <div className="mb-6">
               <label className="block text-xs font-medium text-gray-700 mb-1">
                 OCR quality
@@ -958,17 +958,15 @@ export function OrderManagement() {
               <p className="mt-1 text-xs text-gray-500">
                 Applies to scanned PDFs/images (OCR). Text PDFs/DOCX/XLSX are unaffected.
               </p>
-              {ocrProvider === 'vision' && (
-                <label className="mt-3 flex items-center gap-2 text-xs text-gray-600">
-                  <input
-                    type="checkbox"
-                    checked={ocrMultiPass}
-                    onChange={(e) => setOcrMultiPass(e.target.checked)}
-                    className="h-3.5 w-3.5 text-primary"
-                  />
-                  Extra OCR pass (slower, better for missing text)
-                </label>
-              )}
+              <label className="mt-3 flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={ocrMultiPass}
+                  onChange={(e) => setOcrMultiPass(e.target.checked)}
+                  className="h-3.5 w-3.5 text-primary"
+                />
+                Extra OCR pass (slower, better for missing text)
+              </label>
             </div>
           )}
 
