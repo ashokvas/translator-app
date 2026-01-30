@@ -412,6 +412,15 @@ export async function POST(request: NextRequest) {
       mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     }
 
+    // Get version number from the translation's latest version
+    const versions = await convexClient.query(api.translations.getTranslationVersions, {
+      translationId: translationId as any,
+      clerkId: userId,
+    });
+
+    const latestVersion = versions && versions.length > 0 ? versions[0] : null;
+    const versionNumber = latestVersion?.versionNumber || 1;
+
     // Upload to Convex storage
     const uploadUrl = await convexClient.mutation(api.files.generateUploadUrl);
 
@@ -428,8 +437,9 @@ export async function POST(request: NextRequest) {
 
     const { storageId } = await uploadResponse.json();
 
-    // Store file metadata
-    const translatedFileName = fileName.replace(/\.[^.]+$/, `_translated.${fileExtension}`);
+    // Store file metadata with version number in filename
+    const baseFileName = fileName.replace(/\.[^.]+$/, '');
+    const translatedFileName = `${baseFileName} - v${versionNumber}.${fileExtension}`;
     const fileMetadata = await convexClient.mutation(api.files.storeFileMetadata, {
       storageId,
       fileName: translatedFileName,
@@ -438,7 +448,7 @@ export async function POST(request: NextRequest) {
       pageCount: translation.segments.length,
     });
 
-    // Add to order's translatedFiles
+    // Add to order's translatedFiles (append, don't replace)
     await convexClient.mutation(api.orders.uploadTranslatedFiles, {
       orderId: orderId as any,
       clerkId: userId,
@@ -450,6 +460,7 @@ export async function POST(request: NextRequest) {
           fileSize: finalBuffer.byteLength,
           fileType: mimeType,
           originalFileName: fileName,
+          versionNumber: versionNumber,
         },
       ],
     });

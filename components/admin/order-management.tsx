@@ -974,6 +974,21 @@ export function OrderManagement() {
             </div>
           )}
 
+          {/* Table borders option - only show for certificate domain */}
+          {orderDetails.status !== 'pending' && documentDomain === 'certificate' && (
+            <div className="mb-6">
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={includeTableBorders}
+                  onChange={(e) => setIncludeTableBorders(e.target.checked)}
+                  className="h-3.5 w-3.5 text-primary"
+                />
+                Include table borders in generated documents
+              </label>
+            </div>
+          )}
+
           {orderDetails.status !== 'pending' && translationProvider === 'openrouter' && (
             <div className="mb-6">
               <label className="block text-xs font-medium text-foreground mb-1">
@@ -1157,18 +1172,6 @@ export function OrderManagement() {
                     <span className="text-sm text-foreground">PDF (.pdf)</span>
                   </label>
                 </div>
-                {/* Table borders option - only show for certificate domain */}
-                {documentDomain === 'certificate' && (
-                  <label className="flex items-center gap-2 cursor-pointer mt-3">
-                    <input
-                      type="checkbox"
-                      checked={includeTableBorders}
-                      onChange={(e) => setIncludeTableBorders(e.target.checked)}
-                      className="h-4 w-4 text-primary focus:ring-primary rounded"
-                    />
-                    <span className="text-sm text-foreground">Include table borders</span>
-                  </label>
-                )}
               </div>
 
               {/* Approved Files List with Checkboxes */}
@@ -1261,43 +1264,80 @@ export function OrderManagement() {
           {orderDetails.translatedFiles && orderDetails.translatedFiles.length > 0 && (
             <div className="mb-6">
               <h4 className="font-medium text-foreground mb-2">Translated Files:</h4>
-              <div className="space-y-2">
-                {orderDetails.translatedFiles.map((file: any, index: number) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 bg-muted/40 rounded-lg"
-                  >
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-foreground">{file.fileName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {getLanguageName(orderDetails.targetLanguage)}
-                        {file.translatedAt && (
-                          <span className="ml-2">
-                            • Translated: {format(new Date(file.translatedAt), 'MMM d, yyyy h:mm a')}
-                          </span>
-                        )}
-                      </p>
+              <div className="space-y-4">
+                {(() => {
+                  // Group files by originalFileName
+                  const groupedFiles = orderDetails.translatedFiles.reduce((acc: any, file: any) => {
+                    const original = file.originalFileName || 'Unknown';
+                    if (!acc[original]) {
+                      acc[original] = [];
+                    }
+                    acc[original].push(file);
+                    return acc;
+                  }, {});
+
+                  // Sort versions within each group (newest first)
+                  Object.keys(groupedFiles).forEach((key) => {
+                    groupedFiles[key].sort((a: any, b: any) => {
+                      const versionA = a.versionNumber || 0;
+                      const versionB = b.versionNumber || 0;
+                      return versionB - versionA;
+                    });
+                  });
+
+                  return Object.entries(groupedFiles).map(([originalFileName, files]: [string, any]) => (
+                    <div key={originalFileName} className="border border-border rounded-lg p-4 bg-muted/20">
+                      <h5 className="text-sm font-medium text-foreground mb-3">
+                        {originalFileName} ({files.length} version{files.length > 1 ? 's' : ''})
+                      </h5>
+                      <div className="space-y-2">
+                        {files.map((file: any, index: number) => (
+                          <div
+                            key={index}
+                            className="flex items-center justify-between p-3 bg-background rounded-lg border border-border"
+                          >
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium text-foreground">{file.fileName}</p>
+                                {file.versionNumber && index === 0 && (
+                                  <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded">
+                                    Latest
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                {getLanguageName(orderDetails.targetLanguage)}
+                                {file.translatedAt && (
+                                  <span className="ml-2">
+                                    • Translated: {format(new Date(file.translatedAt), 'MMM d, yyyy h:mm a')}
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={file.fileUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:opacity-90 text-sm"
+                              >
+                                Download
+                              </a>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDeleteTranslatedFile(file.fileName)}
+                                className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={file.fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:opacity-90 text-sm"
-                      >
-                        Download
-                      </a>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDeleteTranslatedFile(file.fileName)}
-                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  ));
+                })()}
               </div>
             </div>
           )}
@@ -1357,6 +1397,7 @@ export function OrderManagement() {
                   fileType={orderDetails.files[reviewingFileIndex].fileType}
                   sourceLanguage={orderDetails.sourceLanguage}
                   targetLanguage={orderDetails.targetLanguage}
+                  includeTableBorders={includeTableBorders}
                   onClose={() => setReviewingFileIndex(null)}
                   onApprove={() => {
                     setReviewingFileIndex(null);

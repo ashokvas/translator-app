@@ -31,6 +31,7 @@ interface TranslationReviewProps {
   fileType?: string;
   sourceLanguage: string;
   targetLanguage: string;
+  includeTableBorders?: boolean;
   onClose: () => void;
   onApprove: () => void;
 }
@@ -43,6 +44,7 @@ export function TranslationReview({
   fileType,
   sourceLanguage,
   targetLanguage,
+  includeTableBorders = false,
   onClose,
   onApprove,
 }: TranslationReviewProps) {
@@ -181,6 +183,7 @@ export function TranslationReview({
           translationId: translation._id,
           orderId,
           fileName,
+          includeTableBorders,
         }),
       });
 
@@ -218,7 +221,7 @@ export function TranslationReview({
       setIsApproving(false);
       setIsApproveDialogOpen(false);
     }
-  }, [user?.id, translation, approveTranslation, onApprove, orderId, fileName, isApproving]);
+  }, [user?.id, translation, approveTranslation, onApprove, orderId, fileName, isApproving, includeTableBorders]);
 
   const handleRestoreVersion = useCallback(async (versionId: Id<'translationVersions'>) => {
     if (!user?.id || !translation) return;

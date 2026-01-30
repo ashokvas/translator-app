@@ -56,6 +56,7 @@ export default defineSchema({
           fileType: v.string(),
           originalFileName: v.string(), // Reference to original file
           translatedAt: v.optional(v.number()), // Timestamp when file was translated/generated
+          versionNumber: v.optional(v.number()), // Version number for this translation (optional for backward compatibility)
         })
       )
     ),

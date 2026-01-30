@@ -278,6 +278,7 @@ export const uploadTranslatedFiles = mutation({
         fileSize: v.number(),
         fileType: v.string(),
         originalFileName: v.string(),
+        versionNumber: v.optional(v.number()), // Optional for backward compatibility
       })
     ),
   },
@@ -304,21 +305,9 @@ export const uploadTranslatedFiles = mutation({
       translatedAt: now,
     }));
 
-    // Merge with existing translated files
-    // Replace files with the same originalFileName (for re-translations)
-    // Keep files from other source documents
+    // Append new translated files to existing ones (keep all versions)
     const existingTranslatedFiles = order.translatedFiles || [];
-    const newOriginalFileNames = new Set(
-      translatedFilesWithTimestamp.map((f) => f.originalFileName)
-    );
-
-    // Remove old versions of files being re-translated
-    const filteredExistingFiles = existingTranslatedFiles.filter(
-      (file) => !newOriginalFileNames.has(file.originalFileName)
-    );
-
-    // Combine: keep other files + add new/updated files
-    const mergedTranslatedFiles = [...filteredExistingFiles, ...translatedFilesWithTimestamp];
+    const mergedTranslatedFiles = [...existingTranslatedFiles, ...translatedFilesWithTimestamp];
 
     // Update order with merged translated files and mark as completed
     await ctx.db.patch(args.orderId, {
