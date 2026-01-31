@@ -6,7 +6,7 @@ import { sendEmail } from '@/lib/email';
 const INTERNAL_BCC_RECIPIENTS = [
   'admin@translatoraxis.com',
   'ashokvas@gmail.com',
-  'sunilvaswani1957@proton.me',
+  'translatoraxis@gmail.com',
 ] as const;
 
 const ALLOWED_KINDS = [
