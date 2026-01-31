@@ -290,10 +290,10 @@ export function OrderManagement() {
     }
   };
 
-  // Handle translating all files at once
+  // Handle translating all files at once (in batches of 5)
   const handleTranslateAll = async () => {
     if (!selectedOrder || !user?.id || !orderDetails) return;
-    
+
     const canTranslate =
       orderDetails.status === 'paid' ||
       orderDetails.status === 'processing' ||
@@ -316,13 +316,37 @@ export function OrderManagement() {
       return;
     }
 
+    const BATCH_SIZE = 5;
+    const totalFiles = filesToTranslate.length;
+    const totalBatches = Math.ceil(totalFiles / BATCH_SIZE);
+
     setNotice({
-      title: 'Starting translations',
-      message: `Starting translation for ${filesToTranslate.length} file(s)...`,
+      title: 'Starting batch translations',
+      message: `Starting translation for ${totalFiles} file(s) in ${totalBatches} batch(es) of ${BATCH_SIZE}...`,
     });
 
-    // Start all translations in parallel
-    await Promise.all(filesToTranslate.map(({ index }: { index: number }) => handleTranslate(index)));
+    // Process files in batches of 5
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const start = batchIndex * BATCH_SIZE;
+      const end = Math.min(start + BATCH_SIZE, totalFiles);
+      const batch = filesToTranslate.slice(start, end);
+
+      setNotice({
+        title: `Batch ${batchIndex + 1} of ${totalBatches}`,
+        message: `Translating files ${start + 1}-${end} of ${totalFiles}...`,
+      });
+
+      // Translate all files in the current batch in parallel
+      await Promise.all(batch.map(({ index }: { index: number }) => handleTranslate(index)));
+
+      // Wait a moment before showing the next batch notification
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    setNotice({
+      title: 'Batch translations complete',
+      message: `All ${totalFiles} file(s) have been queued for translation. Monitor progress below.`,
+    });
   };
 
   // Handle generating individual document with format selection
