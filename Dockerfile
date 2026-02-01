@@ -8,6 +8,14 @@ FROM node:20-slim AS deps
 
 WORKDIR /app
 
+# Install build dependencies for native modules (lightningcss, sharp, canvas, etc.)
+# These are needed during npm install to compile native bindings
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy package files
 COPY package.json package-lock.json* ./
 
@@ -21,14 +29,7 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies for native modules (lightningcss, sharp, canvas, etc.)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy dependencies from deps stage
+# Copy dependencies from deps stage (includes compiled native modules)
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
