@@ -10,6 +10,7 @@ WORKDIR /app
 
 # Install build dependencies for native modules (lightningcss, sharp, canvas, etc.)
 # These are needed during npm install to compile native bindings
+# CACHE_BUST=2026-02-01 (forces rebuild after adding build tools)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
@@ -19,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies (use npm install to handle lock file mismatches)
+# Install dependencies with build tools available (use npm install to handle lock file mismatches)
 RUN npm install --legacy-peer-deps
 
 # ============================================
