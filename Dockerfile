@@ -21,7 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY package.json package-lock.json* ./
 
 # Install dependencies with build tools available (use npm install to handle lock file mismatches)
-RUN npm install --legacy-peer-deps
+# Then force rebuild of native modules to ensure they're compiled with build tools
+RUN npm install --legacy-peer-deps && npm rebuild
 
 # ============================================
 # Stage 2: Builder
